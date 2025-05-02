@@ -84,15 +84,15 @@
     </div>
 
     <script>
-        // 서버 엔드포인트 설정 (사용자가 실제 값으로 변경 필요)
-        const serverUrl = 'http://localhost:5000/chat';
+        // 서버 엔드포인트 설정 (사용자가 실제 서버 URL로 변경 필요)
+        const serverUrl = 'http://localhost:5000/chat';  // 실제 서버 URL로 변경하세요 (예: https://your-server.com/chat)
 
         // DOM 요소 가져오기
         const chatForm = document.getElementById('chat-form');
         const chatArea = document.getElementById('chat-area');
         const userInput = document.getElementById('user-input');
 
-        // 정규식으로 특수문자 및 심볼 필터링 (1. 토큰 필터링)
+        // 특수문자 필터링 함수
         function filterSpecialCharacters(text) {
             return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '');
         }
@@ -109,7 +109,7 @@
                     body: JSON.stringify({ message: filteredMessage }),
                 });
                 const data = await response.json();
-                return data.response;
+                return data.response;  // 서버에서 'response' 키로 응답을 반환한다고 가정
             } catch (error) {
                 console.error('서버 요청 실패:', error);
                 return '서버와의 연결에 문제가 있습니다.';
@@ -123,20 +123,22 @@
             const message = userInput.value.trim();
             if (!message) return;
 
+            // 사용자 메시지 채팅창에 추가
             addMessageToChat('user', message);
-            userInput.value = '';
+            userInput.value = '';  // 입력창 초기화
 
+            // 서버로부터 응답 받아 채팅창에 추가
             const botResponse = await processMessage(message);
             addMessageToChat('bot', botResponse);
         });
 
-        // 채팅 영역에 메시지 추가 함수
+        // 채팅창에 메시지 추가 함수
         function addMessageToChat(sender, message) {
             const p = document.createElement('p');
             p.textContent = `${sender === 'user' ? '나' : '챗봇'}: ${message}`;
             p.classList.add(sender === 'user' ? 'user-message' : 'bot-message');
             chatArea.appendChild(p);
-            chatArea.scrollTop = chatArea.scrollHeight;
+            chatArea.scrollTop = chatArea.scrollHeight;  // 스크롤을 항상 아래로 유지
         }
     </script>
 </body>

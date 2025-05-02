@@ -5,17 +5,25 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from collections import Counter
 from flask import Flask, request, jsonify
+import requests  # MongoDB API 호출을 위해 추가
 
 app = Flask(__name__)
 
+# MongoDB Atlas Data API 설정 (사용자가 실제 값으로 변경 필요)
+MONGO_API_URL = 'https://data.mongodb-api.com/app/your-app-id/endpoint/data'  # 실제 URL로 변경
+MONGO_API_KEY = 'your-mongo-api-key'  # 실제 API 키로 변경
+
 # 설정
-VOCAB_MIN_FREQ = 5  # 2. 단어장 구축: 최소 등장 횟수
-EMBEDDING_JSON = 'embeddings.json'  # 3. 임베딩 매트릭스: 파일 경로
-EMBEDDING_DIM = 100  # 임베딩 벡터 차원 (JSON에 맞게 설정)
+VOCAB_MIN_FREQ = 5  # 단어장 구축: 최소 등장 횟수
+EMBEDDING_JSON = 'embeddings.json'  # 임베딩 매트릭스 파일 경로
+EMBEDDING_DIM = 100  # 임베딩 벡터 차원
 HIDDEN_DIM = 128
-OUTPUT_DIM = 4  # 예: 긍정, 부정, 중립, 질문 (레이블 수에 맞게 조정)
+OUTPUT_DIM = 4  # 레이블 수 (긍정, 부정, 중립, 질문)
 BATCH_SIZE = 32
 EPOCHS = 10
+
+# 사용자의 홈페이지 URL
+USER_HOMEPAGE = 'https://rnjsjergus179.github.io/-/'
 
 # 2. 단어장 구축
 def build_vocabulary(tokens):
@@ -104,7 +112,7 @@ def train_model(model, loader, epochs):
         scheduler.step()
         print(f'Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(loader):.4f}')
         
-        # 검증 정확도 (여기서는 생략, 실제 데이터로 확장 가능)
+        # 검증 정확도
         model.eval()
         correct = 0
         total = 0
@@ -129,20 +137,49 @@ def predict(model, text, vocab):
         prediction = model(sequence)
         _, predicted = torch.max(prediction, 1)
         responses = {
-            0: "좋은 말씀 감사합니다!",
+            0: f"좋은 말씀 감사합니다! 제 홈페이지를 방문해보세요: {USER_HOMEPAGE}",
             1: "아쉽네요, 어떻게 도와드릴까요?",
             2: "궁금한 점을 말씀해 주세요!",
             3: "별말씀을요!"
         }
         return responses.get(predicted.item(), "잘 이해하지 못했어요.")
 
-# Flask 엔드포인트
+# MongoDB에서 tokens 가져오는 함수
+def fetch_mongo_tokens():
+    try:
+        headers = {
+            'Content-Type': 'application/json',
+            'api-key': MONGO_API_KEY
+        }
+        body = {
+            'collection': 'your-collection',  # 실제 컬렉션 이름으로 변경
+            'database': 'your-database',      # 실제 데이터베이스 이름으로 변경
+            'dataSource': 'your-cluster',     # 실제 클러스터 이름으로 변경
+            'filter': {},                     # 필요 시 필터 추가
+            'projection': {'tokens': 1}
+        }
+        response = requests.post(MONGO_API_URL, headers=headers, json=body)
+        data = response.json()
+        return data.get('documents', [{}])[0].get('tokens', [])
+    except Exception as e:
+        print(f'MongoDB API 호출 실패: {e}')
+        return []
+
+# Flask 엔드포인트: MongoDB tokens 가져오기
+@app.route('/mongo-tokens', methods=['GET'])
+def get_mongo_tokens():
+    tokens = fetch_mongo_tokens()
+    return jsonify({'tokens': tokens})
+
+# Flask 엔드포인트: 챗봇 응답
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.get_json()
     message = data['message']
     response = predict(model, message, vocab)
-    return jsonify({'response': response})
+    tokens = fetch_mongo_tokens()  # MongoDB 데이터 호출
+    # 필요 시 tokens를 응답에 활용하는 로직 추가 가능
+    return jsonify({'response': response, 'mongo_tokens': tokens})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

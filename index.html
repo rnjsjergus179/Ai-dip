@@ -84,43 +84,50 @@
     </div>
 
     <script>
+        // 서버 엔드포인트 설정 (사용자가 실제 값으로 변경 필요)
+        const serverUrl = 'http://localhost:5000/chat';
+
         // DOM 요소 가져오기
         const chatForm = document.getElementById('chat-form');
         const chatArea = document.getElementById('chat-area');
         const userInput = document.getElementById('user-input');
 
-        // 폼 제출 이벤트 처리 (엔터 키 또는 전송 버튼 클릭)
-        chatForm.addEventListener('submit', async function(event) {
-            event.preventDefault(); // 기본 폼 제출 동작 방지
+        // 정규식으로 특수문자 및 심볼 필터링 (1. 토큰 필터링)
+        function filterSpecialCharacters(text) {
+            return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '');
+        }
 
-            const message = userInput.value.trim();
-            if (!message) return; // 빈 메시지 무시
-
-            // 사용자의 메시지를 채팅 영역에 추가
-            addMessageToChat('user', message);
-            userInput.value = ''; // 입력 필드 초기화
-
-            // 서버에 요청 보내기
+        // 서버로 메시지 전송 및 응답 처리
+        async function processMessage(message) {
+            const filteredMessage = filterSpecialCharacters(message);
             try {
-                const response = await fetch('https://your-api-url.com/predict', {
+                const response = await fetch(serverUrl, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ text: message })
+                    body: JSON.stringify({ message: filteredMessage }),
                 });
-
-                if (!response.ok) {
-                    throw new Error('서버 응답 오류');
-                }
-
                 const data = await response.json();
-                const botResponse = data.result || '응답을 생성할 수 없습니다.';
-                addMessageToChat('bot', botResponse);
+                return data.response;
             } catch (error) {
-                console.error('API 호출 실패:', error);
-                addMessageToChat('bot', '오류가 발생했습니다. 다시 시도해 주세요.');
+                console.error('서버 요청 실패:', error);
+                return '서버와의 연결에 문제가 있습니다.';
             }
+        }
+
+        // 폼 제출 이벤트 처리
+        chatForm.addEventListener('submit', async function(event) {
+            event.preventDefault();
+
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            addMessageToChat('user', message);
+            userInput.value = '';
+
+            const botResponse = await processMessage(message);
+            addMessageToChat('bot', botResponse);
         });
 
         // 채팅 영역에 메시지 추가 함수
@@ -129,7 +136,7 @@
             p.textContent = `${sender === 'user' ? '나' : '챗봇'}: ${message}`;
             p.classList.add(sender === 'user' ? 'user-message' : 'bot-message');
             chatArea.appendChild(p);
-            chatArea.scrollTop = chatArea.scrollHeight; // 스크롤을 최신 메시지로 이동
+            chatArea.scrollTop = chatArea.scrollHeight;
         }
     </script>
 </body>

@@ -84,18 +84,41 @@
     </div>
 
     <script>
-        // 서버 엔드포인트 설정 (사용자가 실제 서버 URL로 변경 필요)
-        const chatServerUrl = 'http://localhost:5000/chat';  // 챗봇 응답을 위한 엔드포인트
-        const mongoServerUrl = 'http://localhost:5000/mongo-tokens';  // MongoDB 데이터를 위한 엔드포인트
+        // 서버 엔드포인트 설정
+        const chatServerUrl = 'https://emotionail2-0.onrender.com/chat';  // 챗봇 응답 엔드포인트
+        const mongoServerUrl = 'https://emotionail2-0.onrender.com/mongo-tokens';  // MongoDB 데이터 엔드포인트
 
         // DOM 요소 가져오기
         const chatForm = document.getElementById('chat-form');
         const chatArea = document.getElementById('chat-area');
         const userInput = document.getElementById('user-input');
 
+        // 상수 정의
+        const VOCAB_MIN_FREQ = 2;  // 단어장 생성 시 최소 빈도수
+        const EMBEDDING_DIM = 100;  // 임베딩 차원 (예시 값, 실제 값은 embeddings.json에 따라 다름)
+
         // 특수문자 필터링 함수
         function filterSpecialCharacters(text) {
             return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '');
+        }
+
+        // 단어장 생성 함수
+        function buildVocabulary(tokens) {
+            const tokenCounts = {};
+            tokens.forEach(token => {
+                tokenCounts[token] = (tokenCounts[token] || 0) + 1;
+            });
+            const vocab = {
+                '<PAD>': 0,
+                '<UNK>': 1
+            };
+            let index = 2;
+            for (const token in tokenCounts) {
+                if (tokenCounts[token] >= VOCAB_MIN_FREQ) {
+                    vocab[token] = index++;
+                }
+            }
+            return vocab;
         }
 
         // MongoDB 데이터를 가져오는 함수
@@ -104,8 +127,8 @@
                 const response = await fetch(mongoServerUrl);
                 const data = await response.json();
                 console.log('MongoDB에서 가져온 데이터:', data.tokens);
-                // 필요 시 MongoDB 데이터를 채팅창에 표시하거나 활용 가능
-                return data.tokens;
+                const vocab = buildVocabulary(data.tokens);  // MongoDB 토큰으로 단어장 생성
+                return vocab;
             } catch (error) {
                 console.error('MongoDB 데이터 요청 실패:', error);
                 return null;
@@ -124,7 +147,7 @@
                     body: JSON.stringify({ message: filteredMessage }),
                 });
                 const data = await response.json();
-                return data.response;  // 서버에서 'response' 키로 응답을 반환한다고 가정
+                return data.response;  // 서버에서 반환하는 응답
             } catch (error) {
                 console.error('서버 요청 실패:', error);
                 return '서버와의 연결에 문제가 있습니다.';
@@ -146,8 +169,9 @@
             const botResponse = await processMessage(message);
             addMessageToChat('bot', botResponse);
 
-            // MongoDB 데이터 호출 및 활용 (예: 콘솔 출력)
-            await fetchMongoData();
+            // MongoDB 데이터 호출 및 단어장 생성 (콘솔 출력 예시)
+            const vocab = await fetchMongoData();
+            console.log('생성된 단어장:', vocab);
         });
 
         // 채팅창에 메시지 추가 함수
@@ -156,7 +180,7 @@
             p.textContent = `${sender === 'user' ? '나' : '챗봇'}: ${message}`;
             p.classList.add(sender === 'user' ? 'user-message' : 'bot-message');
             chatArea.appendChild(p);
-            chatArea.scrollTop = chatArea.scrollHeight;  // 스크롤을 항상 아래로 유지
+            chatArea.scrollTop = chatArea.scrollHeight;  // 스크롤을 아래로 유지
         }
     </script>
 </body>

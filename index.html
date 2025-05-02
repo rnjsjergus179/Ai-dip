@@ -85,7 +85,8 @@
 
     <script>
         // 서버 엔드포인트 설정 (사용자가 실제 서버 URL로 변경 필요)
-        const serverUrl = 'http://localhost:5000/chat';  // 실제 서버 URL로 변경하세요 (예: https://your-server.com/chat)
+        const chatServerUrl = 'http://localhost:5000/chat';  // 챗봇 응답을 위한 엔드포인트
+        const mongoServerUrl = 'http://localhost:5000/mongo-tokens';  // MongoDB 데이터를 위한 엔드포인트
 
         // DOM 요소 가져오기
         const chatForm = document.getElementById('chat-form');
@@ -97,11 +98,25 @@
             return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '');
         }
 
+        // MongoDB 데이터를 가져오는 함수
+        async function fetchMongoData() {
+            try {
+                const response = await fetch(mongoServerUrl);
+                const data = await response.json();
+                console.log('MongoDB에서 가져온 데이터:', data.tokens);
+                // 필요 시 MongoDB 데이터를 채팅창에 표시하거나 활용 가능
+                return data.tokens;
+            } catch (error) {
+                console.error('MongoDB 데이터 요청 실패:', error);
+                return null;
+            }
+        }
+
         // 서버로 메시지 전송 및 응답 처리
         async function processMessage(message) {
             const filteredMessage = filterSpecialCharacters(message);
             try {
-                const response = await fetch(serverUrl, {
+                const response = await fetch(chatServerUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -130,6 +145,9 @@
             // 서버로부터 응답 받아 채팅창에 추가
             const botResponse = await processMessage(message);
             addMessageToChat('bot', botResponse);
+
+            // MongoDB 데이터 호출 및 활용 (예: 콘솔 출력)
+            await fetchMongoData();
         });
 
         // 채팅창에 메시지 추가 함수

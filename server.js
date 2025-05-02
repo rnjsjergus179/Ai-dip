@@ -17,32 +17,20 @@ app.use(cors({
   ]
 }));
 
-// MongoDB Atlas Data API 설정
-const MONGO_API_URL = 'https://data.mongodb-api.com/app/your-app-id/endpoint/data'; // 실제 URL로 변경
-const MONGO_API_KEY = 'your-mongo-api-key'; // 실제 API 키로 변경
+// MongoDB URI 설정 (백엔드에서 제공)
+const MONGO_API_URL = 'https://emotionail2-0.onrender.com/mongo-tokens'; // MongoDB URI 엔드포인트
 
 // 사용자의 홈페이지 URL
 const USER_HOMEPAGE = 'https://rnjsjergus179.github.io/-/';
 
-// MongoDB에서 tokens 가져오는 함수 (수정됨)
+// MongoDB에서 tokens 가져오는 함수
 async function fetchMongoTokens() {
   try {
-    const headers = {
-      'Content-Type': 'application/json',
-      'api-key': MONGO_API_KEY
-    };
-    const body = {
-      collection: 'your-collection',  // 실제 컬렉션 이름으로 변경
-      database: 'your-database',      // 실제 데이터베이스 이름으로 변경
-      dataSource: 'your-cluster',     // 실제 클러스터 이름으로 변경
-      filter: {},                     // 필요 시 필터 추가
-      projection: { tokens: 1 }
-    };
-    const response = await axios.post(MONGO_API_URL, body, { headers }); // 수정된 부분
+    const response = await axios.get(MONGO_API_URL); // API 키 없이 GET 요청으로 호출
     const data = response.data;
-    return data.documents?.[0]?.tokens || [];
+    return data.tokens || []; // 백엔드 응답 형식에 맞게 tokens 추출
   } catch (error) {
-    console.error(`MongoDB API 호출 실패: ${error}`);
+    console.error(`MongoDB URI 호출 실패: ${error}`);
     return [];
   }
 }

@@ -22,7 +22,7 @@ app.use(express.json());
 // API 키 인증 미들웨어 (클라이언트 인증)
 app.use((req, res, next) => {
   const apiKey = req.headers['x-api-key'];
-  const validApiKey = process.env.API_KEY; // Render 환경 변수에서 클라이언트 인증 키 가져오기
+  const validApiKey = process.env.CLIENT_API_KEY; // 클라이언트 인증용 키
   if (!apiKey || apiKey !== validApiKey) {
     logStream.write(`[${new Date().toISOString()}] [인증 실패] API 키 오류\n`);
     return res.status(401).json({ error: 'Unauthorized' });
@@ -30,7 +30,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS 설정
+// CORS 설정: 두 프런트엔드 출처 허용
 app.use(cors({
   origin: [
     'https://rnjsjergus179.github.io',
@@ -40,14 +40,14 @@ app.use(cors({
 
 // MongoDB Data API 엔드포인트 및 인증 키
 const MONGO_API_URI = process.env.MONGO_API_URI;
-const MONGO_API_KEY = process.env.MONGO_API_KEY; // Render 환경 변수에서 MongoDB API 키 가져오기
+const MONGO_API_KEY = process.env.MONGO_API_KEY; // MongoDB API 인증용 키
 
 // MongoDB 토큰 캐싱 변수
 let cachedTokens = null;
 let lastFetchTime = 0;
 const CACHE_DURATION = 60 * 60 * 1000; // 1시간 캐싱
 
-// MongoDB 토큰 가져오기 함수 (캐싱 및 인증 헤더 포함)
+// MongoDB 토큰 가져오기 함수
 async function fetchMongoTokens() {
   const now = Date.now();
   if (cachedTokens && (now - lastFetchTime) < CACHE_DURATION) {
@@ -61,7 +61,7 @@ async function fetchMongoTokens() {
     logStream.write(`[${new Date().toISOString()}] [MongoDB API 호출 전] MongoDB API 요청 시작...\n`);
     const response = await axios.get(MONGO_API_URI, {
       headers: {
-        'api-key': process.env.API_KEY // MongoDB API 인증 헤더 추가
+        'api-key': process.env.MONGO_API_KEY // MongoDB API 인증용 키 사용
       }
     });
     const data = response.data;
@@ -77,7 +77,7 @@ async function fetchMongoTokens() {
   }
 }
 
-// Python 예측 함수 (캐싱 및 에러 핸들링 강화)
+// Python 예측 함수
 async function predictText(text) {
   const cachedResponse = predictionCache.get(text);
   if (cachedResponse) {

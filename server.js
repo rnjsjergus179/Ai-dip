@@ -39,7 +39,7 @@ app.use(cors({
 }));
 
 // MongoDB Data API 엔드포인트 및 인증 키
-const MONGO_API_URI = 'https://emotionail2-0.onrender.com/mongo-tokens';
+const MONGO_API_URI = process.env.MOGO_API_URI:
 const MONGO_API_KEY = process.env.MONGO_API_KEY; // Render 환경 변수에서 MongoDB API 키 가져오기
 
 // MongoDB 토큰 캐싱 변수

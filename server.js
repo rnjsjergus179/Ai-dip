@@ -19,10 +19,10 @@ const predictionCache = new NodeCache({ stdTTL: 600 });
 // JSON 파싱 미들웨어
 app.use(express.json());
 
-// API 키 인증 미들웨어 (보안 강화)
+// API 키 인증 미들웨어 (클라이언트 인증)
 app.use((req, res, next) => {
   const apiKey = req.headers['x-api-key'];
-  const validApiKey = process.env.API_KEY; // Render 환경 변수에서 API 키 가져오기
+  const validApiKey = process.env.API_KEY; // Render 환경 변수에서 클라이언트 인증 키 가져오기
   if (!apiKey || apiKey !== validApiKey) {
     logStream.write(`[${new Date().toISOString()}] [인증 실패] API 키 오류\n`);
     return res.status(401).json({ error: 'Unauthorized' });
@@ -39,7 +39,7 @@ app.use(cors({
 }));
 
 // MongoDB Data API 엔드포인트 및 인증 키
-const MONGO_API_URI = process.env.MONGO_API_URI:
+const MONGO_API_URI = process.env.MONGO_API_URI;
 const MONGO_API_KEY = process.env.MONGO_API_KEY; // Render 환경 변수에서 MongoDB API 키 가져오기
 
 // MongoDB 토큰 캐싱 변수
@@ -59,9 +59,9 @@ async function fetchMongoTokens() {
   try {
     console.log('[MongoDB API 호출 전] MongoDB API 요청 시작...');
     logStream.write(`[${new Date().toISOString()}] [MongoDB API 호출 전] MongoDB API 요청 시작...\n`);
-    const response = await axios.get(MONGO_API_URL, {
+    const response = await axios.get(MONGO_API_URI, {
       headers: {
-        'api-key': MONGO_API_KEY // MongoDB API 인증 헤더 추가
+        'api-key': process.env.API_KEY // MongoDB API 인증 헤더 추가
       }
     });
     const data = response.data;

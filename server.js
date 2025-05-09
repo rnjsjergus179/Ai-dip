@@ -1,9 +1,11 @@
-require('dotenv').config(); // .env 파일에서 환경변수 로드
+require('dotenv').config(); // .env 파일에서 환경 변수 로드
 const express = require('express');
 const axios = require('axios');
+const cors = require('cors');
+const fetch = require('node-fetch');
 
 const app = express();
-const PORT = process.env.PORT || 3000; // 환경변수 PORT 사용, 기본값 3000
+const PORT = process.env.PORT || 3000; // 환경 변수 PORT 사용, 기본값 3000
 
 // JSON body 파싱을 위한 미들웨어 (POST 요청 처리용)
 app.use(express.json());
@@ -35,7 +37,7 @@ const verifyApiKey = (req, res, next) => {
     console.log('[API KEY FAIL] API 키가 제공되지 않음');
     return res.status(403).send('API key is required');
   }
-  if (key !== process.env.API_KEY) {
+  if (key !== process.env.MY_API_KEY) {
     console.log(`[API KEY FAIL] 잘못된 API 키 - 제공된 키: ${key}`);
     return res.status(403).send('Invalid API key');
   }
@@ -48,8 +50,11 @@ app.get('/api/learning-data', verifyApiKey, async (req, res) => {
   console.log(`[ENDPOINT BEFORE] GET /api/learning-data 요청 시작 - 출처: ${req.headers.origin}`);
   try {
     console.log(`[ENDPOINT PROCESS] 학습용 데이터 가져오기 시도 - URL: ${process.env.LEARNING_TEXT_URL}`);
-    const response = await axios.get(process.env.LEARNING_TEXT_URL);
-    const text = response.data;
+    const response = await fetch(process.env.LEARNING_TEXT_URL, {
+      headers: { 'Authorization': `Bearer ${process.env.MY_API_KEY}` }
+    });
+    if (!response.ok) throw new Error('데이터 가져오기 실패');
+    const text = await response.text();
     res.type('text/plain').send(text);
     console.log(`[ENDPOINT SUCCESS] GET /api/learning-data 요청 성공 - 데이터 전송 완료`);
   } catch (error) {

@@ -112,9 +112,12 @@
     let processedData = null;
     let vocabulary = [];  // 단어 사전
 
-    // API 설정
-    const API_URL = 'https://dibreoning-caesbos.onrender.com/api'; // 실제 백엔드 URL로 교체 가능
-    const API_KEY = 'your-secret-key'; // .env의 API_KEY와 동일하게 설정
+    // API 설정: Render에서 배포된 백엔드 URL 및 환경변수 사용
+    const BACKEND_URL = 'https://dibreoning-caesbos.onrender.com/api'; // 정적 배포 Render 백엔드 URL
+    const API_KEY = 'your-secret-key'; // 서버의 .env와 동일한 API_KEY
+    const LEARNING_TEXT_URL = 'https://example.com/learning.txt'; // 학습용 텍스트 파일 URL (server.js에서 사용)
+    const PORT = '3000'; // 서버 포트 (server.js에서 사용)
+    const ALLOWED_ORIGIN = 'https://your-frontend-domain.com'; // 클라이언트 도메인 (server.js에서 CORS 설정)
 
     // 채팅창에 메시지 추가
     function appendBubble(text, sender) {
@@ -242,7 +245,7 @@
     // 백엔드에서 "학습용.txt" 가져오기 및 처리
     async function fetchAndProcessData() {
       try {
-        const response = await fetch(`${API_URL}/learning-data?api_key=${API_KEY}`, {
+        const response = await fetch(`${BACKEND_URL}/learning-data?api_key=${API_KEY}`, {
           method: 'GET',
           mode: 'cors'
         });
@@ -282,7 +285,7 @@
       console.log('MLP 예측 결과:', prediction);
 
       try {
-        const response = await fetch(`${API_URL}/send-message?api_key=${API_KEY}`, {
+        const response = await fetch(`${BACKEND_URL}/send-message?api_key=${API_KEY}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text }),

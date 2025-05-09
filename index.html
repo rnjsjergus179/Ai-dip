@@ -78,7 +78,6 @@
     .input-area button:hover {
       background: #5b6dfc;
     }
-    /* Scrollbar */
     .messages::-webkit-scrollbar {
       width: 6px;
     }
@@ -114,7 +113,6 @@
 
     // API 설정
     const BACKEND_URL = 'https://dibreoning-caesbos.onrender.com/api';
-    const API_KEY = 'your-secret-key'; // 백엔드의 API_KEY와 동일해야 함
 
     // 채팅창에 메시지 추가
     function appendBubble(text, sender) {
@@ -189,26 +187,19 @@
       const hiddenSize = 128; // 은닉층 크기
       const outputSize = 10;  // 출력 크기 (임의로 설정, 필요 시 조정 가능)
 
-      // 가중치 초기화
       if (!mlpWeights.inputToHidden) {
         mlpWeights.inputToHidden = initializeWeights(hiddenSize, inputSize);
         mlpWeights.hiddenToOutput = initializeWeights(outputSize, hiddenSize);
       }
 
-      // 훈련 루프
       for (let epoch = 0; epoch < epochs; epoch++) {
         data.forEach(item => {
           const input = item.vector;
           const target = new Float32Array(outputSize).map(() => Math.random()); // 임시 타겟
-
-          // 순전파
           const hidden = relu(matrixMultiply(mlpWeights.inputToHidden, input));
           const output = matrixMultiply(mlpWeights.hiddenToOutput, hidden);
-
-          // 오차 계산
           const outputError = output.map((o, i) => target[i] - o);
 
-          // 역전파 (은닉층 -> 출력층)
           for (let i = 0; i < mlpWeights.hiddenToOutput.length; i++) {
             for (let j = 0; j < mlpWeights.hiddenToOutput[i].length; j++) {
               const delta = outputError[i] * hidden[j] * learningRate;
@@ -216,14 +207,13 @@
             }
           }
 
-          // 역전파 (입력층 -> 은닉층)
           const hiddenError = new Float32Array(hiddenSize);
           for (let i = 0; i < hiddenSize; i++) {
             let errorSum = 0;
             for (let j = 0; j < outputSize; j++) {
               errorSum += outputError[j] * mlpWeights.hiddenToOutput[j][i];
             }
-            hiddenError[i] = errorSum * (hidden[i] > 0 ? 1 : 0); // ReLU 미분
+            hiddenError[i] = errorSum * (hidden[i] > 0 ? 1 : 0);
           }
 
           for (let i = 0; i < mlpWeights.inputToHidden.length; i++) {
@@ -236,19 +226,20 @@
         console.log(`Epoch ${epoch + 1}/${epochs} 완료`);
       }
 
-      processedData = data; // 처리된 데이터 저장
+      processedData = data;
     }
 
-    // 백엔드에서 "학습용.txt" 가져오기 및 처리
+    // 백엔드에서 학습 데이터 가져오기
     async function fetchAndProcessData() {
       try {
-        const response = await fetch(`${BACKEND_URL}/learning-data?api_key=${API_KEY}`, {
+        const response = await fetch(`${BACKEND_URL}/learning-data`, {
           method: 'GET',
-          mode: 'cors'
+          mode: 'cors',
+          credentials: 'include' // 인증 필요 시 사용
         });
-        if (!response.ok) throw new Error('학습용.txt 파일을 가져오지 못했습니다.');
+        if (!response.ok) throw new Error('학습 데이터를 가져오지 못했습니다.');
         const text = await response.text();
-        console.log('학습용.txt 파일을 성공적으로 가져왔습니다.');
+        console.log('학습 데이터 가져오기 성공');
 
         const lines = text.split('\n').filter(line => line.trim());
         const refinedTexts = lines.map(line => refineText(line));
@@ -275,18 +266,18 @@
       appendBubble(text, 'user');
       inputEl.value = '';
 
-      // MLP를 활용한 간단한 예측 (예시)
       const tokens = tokenizeText(refineText(text));
       const inputVector = vectorizeText(tokens, vocabulary);
       const prediction = predictMLP(inputVector);
       console.log('MLP 예측 결과:', prediction);
 
       try {
-        const response = await fetch(`${BACKEND_URL}/send-message?api_key=${API_KEY}`, {
+        const response = await fetch(`${BACKEND_URL}/send-message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text }),
-          mode: 'cors'
+          mode: 'cors',
+          credentials: 'include' // 인증 필요 시 사용
         });
 
         if (!response.ok) throw new Error('메시지 전송 실패');

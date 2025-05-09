@@ -238,7 +238,7 @@
     // 백엔드에서 "학습용.txt" 가져오기 및 처리
     async function fetchAndProcessData() {
       try {
-        // 백엔드 API URL 사용
+        // 백엔드 API URL 사용 (정적 배포된 URL)
         const apiUrl = 'https://dibreoning-caesbos.onrender.com/api/learning-data';
         const response = await fetch(apiUrl);
         if (!response.ok) throw new Error('학습용.txt 파일을 가져오지 못했습니다.');

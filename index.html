@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 딥러닝 챗봇</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f0c29;  /* Deep neural background */
+      background: -webkit-linear-gradient(to right, #24243e, #302b63, #0f0c29);
+      background: linear-gradient(to right, #24243e, #302b63, #0f0c29);
+      color: #fff;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chat-container {
+      width: 360px;
+      max-width: 100%;
+      height: 600px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      backdrop-filter: blur(10px);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+      overflow: hidden;
+    }
+    .messages {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .bubble {
+      max-width: 80%;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      border-radius: 16px;
+      position: relative;
+      line-height: 1.4;
+    }
+    .bubble.user {
+      background: #4e54c8;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+    .bubble.bot {
+      background: #8f94fb;
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+    }
+    .input-area {
+      display: flex;
+      border-top: 1px solid rgba(255,255,255,0.2);
+    }
+    .input-area input {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: #fff;
+      font-size: 14px;
+    }
+    .input-area button {
+      padding: 0 16px;
+      background: #6a82fb;
+      border: none;
+      cursor: pointer;
+      color: #fff;
+      font-size: 14px;
+      transition: background 0.3s;
+    }
+    .input-area button:hover {
+      background: #5b6dfc;
+    }
+    /* Scrollbar */
+    .messages::-webkit-scrollbar {
+      width: 6px;
+    }
+    .messages::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .messages::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.2);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div id="messages" class="messages"></div>
+    <div class="input-area">
+      <input id="input" type="text" placeholder="메시지를 입력하세요..." />
+      <button id="send">전송</button>
+    </div>
+  </div>
+  <script>
+    const messagesEl = document.getElementById('messages');
+    const inputEl = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+
+    // 전역 변수로 처리된 데이터 저장
+    let processedData = null;
+
+    // 채팅창에 메시지 추가
+    function appendBubble(text, sender) {
+      const bubble = document.createElement('div');
+      bubble.classList.add('bubble', sender);
+      bubble.textContent = text;
+      messagesEl.appendChild(bubble);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    // 텍스트 정제화
+    function refineText(text) {
+      return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '').toLowerCase().trim();
+    }
+
+    // 단어 토큰화
+    function tokenizeText(text) {
+      return text.split(/\s+/).filter(word => word.length > 0);
+    }
+
+    // 벡터화 (간단한 Bag-of-Words 방식)
+    function vectorizeText(tokens, vocabulary) {
+      const vector = new Float32Array(300); // MLP 입력 크기에 맞춤
+      tokens.forEach(token => {
+        const index = vocabulary.indexOf(token) % 300; // 300 차원에 맞게 해싱
+        if (index >= 0) vector[index] += 1;
+      });
+      return vector;
+    }
+
+    // MLP 훈련 (플레이스홀더)
+    function trainMLP(data) {
+      // 실제 MLP 구현이 필요하면 여기에 추가
+      console.log('MLP에 데이터 저장됨:', data);
+      // 여기서는 단순히 데이터를 저장하고 있다고 가정
+      processedData = data;
+    }
+
+    // "학습용.txt" 파일 가져오기 및 처리
+    async function fetchAndProcessData() {
+      try {
+        const fileUrl = 'https://emotionail.github.io/repo/학습용.txt'; // 실제 URL로 교체 필요
+        const response = await fetch(fileUrl);
+        if (!response.ok) throw new Error('학습용.txt 파일을 가져오지 못했습니다.');
+        const text = await response.text();
+
+        // 텍스트 라인 단위로 분리
+        const lines = text.split('\n').filter(line => line.trim());
+        const refinedTexts = lines.map(line => refineText(line));
+        const tokenizedTexts = refinedTexts.map(text => tokenizeText(text));
+
+        // 전체 단어 사전 생성
+        const vocabulary = [...new Set(tokenizedTexts.flat())];
+        const vectorizedData = tokenizedTexts.map(tokens => ({
+          tokens,
+          vector: vectorizeText(tokens, vocabulary)
+        }));
+
+        // MLP에 데이터 저장
+        trainMLP(vectorizedData);
+
+        return vectorizedData;
+      } catch (error) {
+        console.error('데이터 처리 중 오류:', error);
+        appendBubble('챗봇 초기화에 실패했습니다.', 'bot');
+        return null;
+      }
+    }
+
+    // 채팅 설정
+    function setupChat() {
+      sendBtn.addEventListener('click', async () => {
+        const text = inputEl.value.trim();
+        if (!text) return;
+        appendBubble(text, 'user');
+        inputEl.value = '';
+
+        // 사용자가 메시지를 보낼 때마다 학습용.txt 데이터를 표시
+        if (processedData) {
+          const reply = processedData.map(item => item.tokens.join(' ')).join('\n');
+          setTimeout(() => appendBubble(reply, 'bot'), 500);
+        } else {
+          setTimeout(() => appendBubble('데이터를 불러오는 중입니다...', 'bot'), 500);
+        }
+      });
+
+      inputEl.addEventListener('keypress', e => {
+        if (e.key === 'Enter') sendBtn.click();
+      });
+
+      // 초기 환영 메시지
+      setTimeout(() => appendBubble('안녕하세요! 챗봇입니다. 무엇을 도와드릴까요?', 'bot'), 500);
+    }
+
+    // 초기화
+    async function init() {
+      await fetchAndProcessData();
+      setupChat();
+    }
+
+    // 초기화 실행
+    init();
+  </script>
+</body>
+</html>

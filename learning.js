@@ -4,7 +4,8 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 
-// 환경 변수 로드 (dotenv는 server.js에서 로드됨)
+// 환경 변수 로드 여부 확인 (dotenv는 server.js에서 로드됨)
+console.log(`[ENV LOAD] MY_API_KEY 로드 여부: ${process.env.MY_API_KEY ? '성공' : '실패'}`);
 
 // API 키 검증 미들웨어
 const verifyApiKey = (req, res, next) => {

@@ -112,8 +112,9 @@
     let processedData = null;
     let vocabulary = [];  // 단어 사전
 
-    // API 키 (프론트엔드에서 설정, 실제 키로 교체 필요)
-    const API_KEY = 'your_frontend_api_key';
+    // API 설정
+    const API_URL = 'https://your-backend-domain.com/api/learning-data'; // 실제 백엔드 URL로 교체
+    const API_KEY = 'your_secret_api_key';  // .env의 API_KEY와 동일하게 설정
 
     // 채팅창에 메시지 추가
     function appendBubble(text, sender) {
@@ -241,9 +242,8 @@
     // 백엔드에서 "학습용.txt" 가져오기 및 처리
     async function fetchAndProcessData() {
       try {
-        // 백엔드 API 호출 (쿼리스트링으로 API 키 포함)
-        const apiUrl = `https://dibreoning-caesbos.onrender.com/api/learning-data?api_key=${API_KEY}`;
-        const response = await fetch(apiUrl);
+        // 백엔드 API 호출 (쿼리스트링으로 API 키 포함, mode: 'cors')
+        const response = await fetch(`${API_URL}?api_key=${API_KEY}`, { mode: 'cors' });
         if (!response.ok) throw new Error('학습용.txt 파일을 가져오지 못했습니다.');
         const text = await response.text();
         console.log('학습용.txt 파일을 성공적으로 가져왔습니다.');

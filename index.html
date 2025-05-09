@@ -104,7 +104,11 @@
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');
 
-    // 전역 변수로 처리된 데이터 저장
+    // MLP 모델 파라미터 및 데이터
+    let mlpWeights = {
+      inputToHidden: null,  // 입력층 -> 은닉층 가중치
+      hiddenToOutput: null  // 은닉층 -> 출력층 가중치
+    };
     let processedData = null;
 
     // 채팅창에 메시지 추가
@@ -126,31 +130,119 @@
       return text.split(/\s+/).filter(word => word.length > 0);
     }
 
-    // 벡터화 (간단한 Bag-of-Words 방식)
+    // 벡터화 (Bag-of-Words 방식)
     function vectorizeText(tokens, vocabulary) {
       const vector = new Float32Array(300); // MLP 입력 크기에 맞춤
       tokens.forEach(token => {
-        const index = vocabulary.indexOf(token) % 300; // 300 차원에 맞게 해싱
+        const index = vocabulary.indexOf(token) % 300;
         if (index >= 0) vector[index] += 1;
       });
       return vector;
     }
 
-    // MLP 훈련 (플레이스홀더)
-    function trainMLP(data) {
-      // 실제 MLP 구현이 필요하면 여기에 추가
-      console.log('MLP에 데이터 저장됨:', data);
-      // 여기서는 단순히 데이터를 저장하고 있다고 가정
-      processedData = data;
+    // 행렬 초기화 (랜덤 값으로)
+    function initializeWeights(rows, cols) {
+      const matrix = [];
+      for (let i = 0; i < rows; i++) {
+        const row = new Float32Array(cols);
+        for (let j = 0; j < cols; j++) {
+          row[j] = (Math.random() - 0.5) * 0.1; // -0.05 ~ 0.05 사이 초기값
+        }
+        matrix.push(row);
+      }
+      return matrix;
     }
 
-    // "학습용.txt" 파일 가져오기 및 처리
+    // 행렬 곱셈
+    function matrixMultiply(matrix, vector) {
+      const result = new Float32Array(matrix.length);
+      for (let i = 0; i < matrix.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < vector.length; j++) {
+          sum += matrix[i][j] * vector[j];
+        }
+        result[i] = sum;
+      }
+      return result;
+    }
+
+    // ReLU 활성화 함수
+    function relu(vector) {
+      return vector.map(x => Math.max(0, x));
+    }
+
+    // MLP 예측
+    function predictMLP(inputVector) {
+      const hiddenLayer = relu(matrixMultiply(mlpWeights.inputToHidden, inputVector));
+      const outputLayer = matrixMultiply(mlpWeights.hiddenToOutput, hiddenLayer);
+      return outputLayer;
+    }
+
+    // MLP 훈련 (간단한 경사 하강법)
+    function trainMLP(data, epochs = 10, learningRate = 0.01) {
+      const inputSize = 300;  // 입력 벡터 크기
+      const hiddenSize = 128; // 은닉층 크기
+      const outputSize = 10;  // 출력 크기 (임의로 설정, 필요 시 조정 가능)
+
+      // 가중치 초기화
+      if (!mlpWeights.inputToHidden) {
+        mlpWeights.inputToHidden = initializeWeights(hiddenSize, inputSize);
+        mlpWeights.hiddenToOutput = initializeWeights(outputSize, hiddenSize);
+      }
+
+      // 훈련 루프
+      for (let epoch = 0; epoch < epochs; epoch++) {
+        data.forEach(item => {
+          const input = item.vector;
+          const target = new Float32Array(outputSize).map(() => Math.random()); // 임시 타겟
+
+          // 순전파
+          const hidden = relu(matrixMultiply(mlpWeights.inputToHidden, input));
+          const output = matrixMultiply(mlpWeights.hiddenToOutput, hidden);
+
+          // 오차 계산
+          const outputError = output.map((o, i) => target[i] - o);
+
+          // 역전파 (은닉층 -> 출력층)
+          for (let i = 0; i < mlpWeights.hiddenToOutput.length; i++) {
+            for (let j = 0; j < mlpWeights.hiddenToOutput[i].length; j++) {
+              const delta = outputError[i] * hidden[j] * learningRate;
+              mlpWeights.hiddenToOutput[i][j] += delta;
+            }
+          }
+
+          // 역전파 (입력층 -> 은닉층)
+          const hiddenError = new Float32Array(hiddenSize);
+          for (let i = 0; i < hiddenSize; i++) {
+            let errorSum = 0;
+            for (let j = 0; j < outputSize; j++) {
+              errorSum += outputError[j] * mlpWeights.hiddenToOutput[j][i];
+            }
+            hiddenError[i] = errorSum * (hidden[i] > 0 ? 1 : 0); // ReLU 미분
+          }
+
+          for (let i = 0; i < mlpWeights.inputToHidden.length; i++) {
+            for (let j = 0; j < mlpWeights.inputToHidden[i].length; j++) {
+              const delta = hiddenError[i] * input[j] * learningRate;
+              mlpWeights.inputToHidden[i][j] += delta;
+            }
+          }
+        });
+        console.log(`Epoch ${epoch + 1}/${epochs} 완료`);
+      }
+
+      processedData = data; // 처리된 데이터 저장
+    }
+
+    // GitHub에서 "학습용.txt" 가져오기 및 처리
     async function fetchAndProcessData() {
       try {
-        const fileUrl = 'https://rnjsjergus179.github.io/repo/학습용.txt'; // 실제 URL로 교체 필요
+        // GitHub 루트 디렉토리에서 "학습용.txt" 파일 가져오기 (raw URL 사용)
+        const fileUrl = 'https://raw.githubusercontent.com/rnjsjergus179/rnjsjergus179/main/학습용.txt';
         const response = await fetch(fileUrl);
         if (!response.ok) throw new Error('학습용.txt 파일을 가져오지 못했습니다.');
         const text = await response.text();
+        console.log('학습용.txt 파일을 성공적으로 가져왔습니다.');
 
         // 텍스트 라인 단위로 분리
         const lines = text.split('\n').filter(line => line.trim());
@@ -164,7 +256,7 @@
           vector: vectorizeText(tokens, vocabulary)
         }));
 
-        // MLP에 데이터 저장
+        // MLP 훈련
         trainMLP(vectorizedData);
 
         return vectorizedData;
@@ -183,7 +275,6 @@
         appendBubble(text, 'user');
         inputEl.value = '';
 
-        // 사용자가 메시지를 보낼 때마다 학습용.txt 데이터를 표시
         if (processedData) {
           const reply = processedData.map(item => item.tokens.join(' ')).join('\n');
           setTimeout(() => appendBubble(reply, 'bot'), 500);

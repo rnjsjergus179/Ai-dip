@@ -113,7 +113,6 @@
     };
     let processedData = [];  // 훈련 데이터 저장
     let vocabulary = [];  // 단어 사전
-    let learningTextContent = ''; // 학습용.txt 파일 내용 저장
 
     // 채팅창에 메시지 추가
     function appendBubble(text, sender) {
@@ -242,10 +241,10 @@
         if (!response.ok) {
           throw new Error(`학습 데이터 가져오기 실패: ${response.statusText}`);
         }
-        learningTextContent = await response.text();
+        const text = await response.text();
         console.log('[SUCCESS] 학습용.txt 파일을 성공적으로 불러왔습니다.');
 
-        const lines = learningTextContent.split('\n').filter(line => line.trim());
+        const lines = text.split('\n').filter(line => line.trim());
         const refinedTexts = lines.map(line => refineText(line));
         const tokenizedTexts = refinedTexts.map(text => tokenizeText(text));
 
@@ -281,12 +280,9 @@
       const prediction = predictMLP(inputVector);
       console.log('MLP 예측 결과:', prediction);
 
-      // 학습용.txt 파일의 원본 내용을 채팅창에 출력
-      if (learningTextContent) {
-        appendBubble(learningTextContent, 'bot');
-      } else {
-        appendBubble('학습용.txt 파일을 불러오지 못했습니다.', 'bot');
-      }
+      // 챗봇 응답
+      const reply = `👾 에코봇: "${text}"라고 하셨군요!`;
+      appendBubble(reply, 'bot');
     }
 
     // 이벤트 리스너 설정

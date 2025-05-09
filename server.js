@@ -50,11 +50,10 @@ app.get('/api/learning-data', verifyApiKey, async (req, res) => {
   console.log(`[ENDPOINT BEFORE] GET /api/learning-data 요청 시작 - 출처: ${req.headers.origin}`);
   try {
     console.log(`[ENDPOINT PROCESS] 학습용 데이터 가져오기 시도 - URL: ${process.env.LEARNING_TEXT_URL}`);
-    const response = await fetch(process.env.LEARNING_TEXT_URL, {
+    const response = await axios.get(process.env.LEARNING_TEXT_URL, {
       headers: { 'Authorization': `Bearer ${process.env.MY_API_KEY}` }
     });
-    if (!response.ok) throw new Error('데이터 가져오기 실패');
-    const text = await response.text();
+    const text = response.data;
     res.type('text/plain').send(text);
     console.log(`[ENDPOINT SUCCESS] GET /api/learning-data 요청 성공 - 데이터 전송 완료`);
   } catch (error) {

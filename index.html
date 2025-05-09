@@ -113,6 +113,7 @@
 
     // API 설정
     const BACKEND_URL = 'https://dibreoning-caesbos.onrender.com/api';
+    const MY_API_KEY = localStorage.getItem('MY_API_KEY') || 'your-default-api-key'; // localStorage에서 MY_API_KEY 가져오기
 
     // 채팅창에 메시지 추가
     function appendBubble(text, sender) {
@@ -232,10 +233,9 @@
     // 백엔드에서 학습 데이터 가져오기
     async function fetchAndProcessData() {
       try {
-        const response = await fetch(`${BACKEND_URL}/learning-data`, {
+        const response = await fetch(`${BACKEND_URL}/learning-data?api_key=${MY_API_KEY}`, {
           method: 'GET',
-          mode: 'cors',
-          credentials: 'include' // 인증 필요 시 사용
+          mode: 'cors'
         });
         if (!response.ok) throw new Error('학습 데이터를 가져오지 못했습니다.');
         const text = await response.text();
@@ -272,12 +272,11 @@
       console.log('MLP 예측 결과:', prediction);
 
       try {
-        const response = await fetch(`${BACKEND_URL}/send-message`, {
+        const response = await fetch(`${BACKEND_URL}/send-message?api_key=${MY_API_KEY}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text }),
-          mode: 'cors',
-          credentials: 'include' // 인증 필요 시 사용
+          mode: 'cors'
         });
 
         if (!response.ok) throw new Error('메시지 전송 실패');

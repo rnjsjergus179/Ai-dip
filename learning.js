@@ -1,15 +1,13 @@
-// learning.js - 백엔드 서버용 라우터 모듈
-
 const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 
-// 환경 변수 로드 여부 확인 (dotenv는 server.js에서 로드됨)
+// 환경 변수 로드 여부 확인
 console.log(`[ENV LOAD] MY_API_KEY 로드 여부: ${process.env.MY_API_KEY ? '성공' : '실패'}`);
 
 // API 키 검증 미들웨어
 const verifyApiKey = (req, res, next) => {
-  const key = req.query.api_key;
+  const key = req.query.api_key || req.headers['authorization']?.split(' ')[1]; // 쿼리 또는 헤더에서 API 키 확인
   if (!key) {
     console.log('[API KEY FAIL] API 키가 제공되지 않음');
     return res.status(403).send('API key is required');

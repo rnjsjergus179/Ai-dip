@@ -104,16 +104,8 @@
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');
 
-    // MLP 모델 파라미터 및 데이터
-    let mlpWeights = {
-      inputToHidden: null,  // 입력층 -> 은닉층 가중치
-      hiddenToOutput: null  // 은닉층 -> 출력층 가중치
-    };
-    let processedData = null;
-    let vocabulary = [];  // 단어 사전
-
     // API 설정
-    const API_URL = 'https://dibreoning-caesbos.onrender.com/api/learning-data'; // 실제 백엔드 URL로 교체
+    const API_URL = 'https://your-backend-domain.com/api'; // 실제 백엔드 URL로 교체
     const API_KEY = 'your_secret_api_key';  // .env의 API_KEY와 동일하게 설정
 
     // 채팅창에 메시지 추가
@@ -125,184 +117,46 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // 텍스트 정제화 (특수문자 제거 및 소문자 변환)
-    function refineText(text) {
-      return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '').toLowerCase().trim();
-    }
+    // 서버로 메시지 전송
+    async function sendMessage() {
+      const text = inputEl.value.trim();
+      if (!text) return;
 
-    // 일반 단어 토큰화 (공백 기준 분리)
-    function tokenizeText(text) {
-      return text.split(/\s+/).filter(word => word.length > 0);
-    }
+      appendBubble(text, 'user');  // 사용자 메시지 표시
+      inputEl.value = '';  // 입력창 초기화
 
-    // 벡터화 (Bag-of-Words 방식)
-    function vectorizeText(tokens, vocabulary) {
-      const vector = new Float32Array(300); // MLP 입력 크기에 맞춤
-      tokens.forEach(token => {
-        const index = vocabulary.indexOf(token) % 300;
-        if (index >= 0) vector[index] += 1;
-      });
-      return vector;
-    }
-
-    // 행렬 초기화 (랜덤 값으로)
-    function initializeWeights(rows, cols) {
-      const matrix = [];
-      for (let i = 0; i < rows; i++) {
-        const row = new Float32Array(cols);
-        for (let j = 0; j < cols; j++) {
-          row[j] = (Math.random() - 0.5) * 0.1; // -0.05 ~ 0.05 사이 초기값
-        }
-        matrix.push(row);
-      });
-      return matrix;
-    }
-
-    // 행렬 곱셈
-    function matrixMultiply(matrix, vector) {
-      const result = new Float32Array(matrix.length);
-      for (let i = 0; i < matrix.length; i++) {
-        let sum = 0;
-        for (let j = 0; j < vector.length; j++) {
-          sum += matrix[i][j] * vector[j];
-        }
-        result[i] = sum;
-      });
-      return result;
-    }
-
-    // ReLU 활성화 함수
-    function relu(vector) {
-      return vector.map(x => Math.max(0, x));
-    }
-
-    // MLP 예측
-    function predictMLP(inputVector) {
-      const hiddenLayer = relu(matrixMultiply(mlpWeights.inputToHidden, inputVector));
-      const outputLayer = matrixMultiply(mlpWeights.hiddenToOutput, hiddenLayer);
-      return outputLayer;
-    }
-
-    // MLP 훈련 (간단한 경사 하강법)
-    function trainMLP(data, epochs = 10, learningRate = 0.01) {
-      const inputSize = 300;  // 입력 벡터 크기
-      const hiddenSize = 128; // 은닉층 크기
-      const outputSize = 10;  // 출력 크기 (임의로 설정, 필요 시 조정 가능)
-
-      // 가중치 초기화
-      if (!mlpWeights.inputToHidden) {
-        mlpWeights.inputToHidden = initializeWeights(hiddenSize, inputSize);
-        mlpWeights.hiddenToOutput = initializeWeights(outputSize, hiddenSize);
-      }
-
-      // 훈련 루프
-      for (let epoch = 0; epoch < epochs; epoch++) {
-        data.forEach(item => {
-          const input = item.vector;
-          const target = new Float32Array(outputSize).map(() => Math.random()); // 임시 타겟
-
-          // 순전파
-          const hidden = relu(matrixMultiply(mlpWeights.inputToHidden, input));
-          const output = matrixMultiply(mlpWeights.hiddenToOutput, hidden);
-
-          // 오차 계산
-          const outputError = output.map((o, i) => target[i] - o);
-
-          // 역전파 (은닉층 -> 출력층)
-          for (let i = 0; i < mlpWeights.hiddenToOutput.length; i++) {
-            for (let j = 0; j < mlpWeights.hiddenToOutput[i].length; j++) {
-              const delta = outputError[i] * hidden[j] * learningRate;
-              mlpWeights.hiddenToOutput[i][j] += delta;
-            }
-          }
-
-          // 역전파 (입력층 -> 은닉층)
-          const hiddenError = new Float32Array(hiddenSize);
-          for (let i = 0; i < hiddenSize; i++) {
-            let errorSum = 0;
-            for (let j = 0; j < outputSize; j++) {
-              errorSum += outputError[j] * mlpWeights.hiddenToOutput[j][i];
-            }
-            hiddenError[i] = errorSum * (hidden[i] > 0 ? 1 : 0); // ReLU 미분
-          }
-
-          for (let i = 0; i < mlpWeights.inputToHidden.length; i++) {
-            for (let j = 0; j < mlpWeights.inputToHidden[i].length; j++) {
-              const delta = hiddenError[i] * input[j] * learningRate;
-              mlpWeights.inputToHidden[i][j] += delta;
-            }
-          }
-        });
-        console.log(`Epoch ${epoch + 1}/${epochs} 완료`);
-      }
-
-      processedData = data; // 처리된 데이터 저장
-    }
-
-    // 백엔드에서 "학습용.txt" 가져오기 및 처리
-    async function fetchAndProcessData() {
       try {
-        // 백엔드 API 호출 (쿼리스트링으로 API 키 포함, mode: 'cors')
-        const response = await fetch(`${API_URL}?api_key=${API_KEY}`, { mode: 'cors' });
-        if (!response.ok) throw new Error('학습용.txt 파일을 가져오지 못했습니다.');
-        const text = await response.text();
-        console.log('학습용.txt 파일을 성공적으로 가져왔습니다.');
+        const response = await fetch(`${API_URL}/send-message?api_key=${API_KEY}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ message: text }),
+          mode: 'cors'
+        });
 
-        // 텍스트 라인 단위로 분리
-        const lines = text.split('\n').filter(line => line.trim());
-        const refinedTexts = lines.map(line => refineText(line));
-        const tokenizedTexts = refinedTexts.map(text => tokenizeText(text));
+        if (!response.ok) {
+          throw new Error('메시지 전송 실패');
+        }
 
-        // 전체 단어 사전 생성
-        vocabulary = [...new Set(tokenizedTexts.flat())];
-        const vectorizedData = tokenizedTexts.map(tokens => ({
-          tokens,
-          vector: vectorizeText(tokens, vocabulary)
-        }));
-
-        // MLP 훈련
-        trainMLP(vectorizedData);
-
-        return vectorizedData;
+        const data = await response.json();
+        appendBubble(data.reply, 'bot');  // 서버 응답 표시
       } catch (error) {
-        console.error('데이터 처리 중 오류:', error);
-        appendBubble('챗봇 초기화에 실패했습니다.', 'bot');
-        return null;
+        console.error('메시지 전송 중 오류:', error);
+        appendBubble('서버와의 통신에 실패했습니다.', 'bot');
       }
     }
 
-    // 채팅 설정
-    function setupChat() {
-      sendBtn.addEventListener('click', async () => {
-        const text = inputEl.value.trim();
-        if (!text) return;
-        appendBubble(text, 'user');
-        inputEl.value = '';
-
-        if (processedData) {
-          const reply = processedData.map(item => item.tokens.join(' ')).join('\n');
-          setTimeout(() => appendBubble(reply, 'bot'), 500);
-        } else {
-          setTimeout(() => appendBubble('데이터를 불러오는 중입니다...', 'bot'), 500);
-        }
-      });
-
-      inputEl.addEventListener('keypress', e => {
-        if (e.key === 'Enter') sendBtn.click();
-      });
-
-      // 초기 환영 메시지
-      setTimeout(() => appendBubble('안녕하세요! 챗봇입니다. 무엇을 도와드릴까요?', 'bot'), 500);
-    }
-
-    // 초기화
-    async function init() {
-      await fetchAndProcessData();
-      setupChat();
-    }
+    // 이벤트 리스너 설정
+    sendBtn.addEventListener('click', sendMessage);
+    inputEl.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
 
     // 초기화 실행
-    init();
+    (async function init() {
+      appendBubble('안녕하세요! 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
+    })();
   </script>
 </body>
 </html>

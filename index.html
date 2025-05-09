@@ -103,68 +103,39 @@
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');
 
-    // API 설정
-    const BACKEND_URL = 'https://dibreoning-caesbos.onrender.com/api';
+    // GitHub raw 파일 URL
+    const LEARNING_TEXT_URL = 'https://raw.githubusercontent.com/rnjsjergus179/-/main/학습용.txt';
 
     // MLP 모델 파라미터 및 데이터
     let mlpWeights = {
-      inputToHidden: null,
-      hiddenToOutput: null
+      inputToHidden: null,  // 입력층 -> 은닉층 가중치
+      hiddenToOutput: null  // 은닉층 -> 출력층 가중치
     };
     let processedData = null;
-    let vocabulary = [];
-
-    // main.js에서 가져온 데이터
-    const SITE_LINKS = {
-      "빙": "https://www.bing.com",
-      "네이버": "https://www.naver.com",
-      "다음": "https://www.daum.net",
-      "유튜브": "https://www.youtube.com",
-      "넷플릭스": "https://www.netflix.com",
-      "트위치": "https://www.twitch.tv",
-      "틱톡": "https://www.tiktok.com",
-      "인스타": "https://www.instagram.com",
-      "인스타그램": "https://www.instagram.com",
-      "페이스북": "https://www.facebook.com",
-      "트위터": "https://x.com",
-      "엑스": "https://x.com",
-      "링크드인": "https://www.linkedin.com",
-      "레딧": "https://www.reddit.com"
-    };
-
-    const KEYWORDS = {
-      greetings: ["안녕", "안녕하세요", "안녕 하세", "안녕하시오", "안녕한갑네"],
-      sleep: ["잘자", "좋은꿈", "좋은 꿈", "잘자요", "잘자시게", "잘자리요", "잘자라니께"],
-      weather: ["날씨알려줘", "날씨알려주게", "날씨좀알려줘", "날씨 알려줘", "날씨 좀 알려줘", "날씨 어때", "날씨 맑아"],
-      time: ["시간 알려줘"],
-      calendar: ["일정 알려줘", "오늘 일정", "이번 주 일정", "일정 확인", "일정 보여줘"],
-      region: ["서울", "인천", "수원", "고양", "성남", "용인", "부천", "안양", "의정부", "광명", "안산", "파주", "부산", "대구", "광주", "대전", "울산", "제주", "전주", "청주", "포항", "여수", "김해"]
-    };
-
-    let intentRecognitionGroup = {};
+    let vocabulary = [];  // 단어 사전
 
     // 채팅창에 메시지 추가
     function appendBubble(text, sender) {
       const bubble = document.createElement('div');
       bubble.classList.add('bubble', sender);
-      bubble.innerHTML = text; // HTML 지원을 위해 textContent 대신 innerHTML 사용
+      bubble.textContent = text;
       messagesEl.appendChild(bubble);
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // 텍스트 정제화
+    // 텍스트 정제화 (특수문자 제거 및 소문자 변환)
     function refineText(text) {
       return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '').toLowerCase().trim();
     }
 
-    // 토큰화
+    // 일반 단어 토큰화 (공백 기준 분리)
     function tokenizeText(text) {
       return text.split(/\s+/).filter(word => word.length > 0);
     }
 
-    // 벡터화
+    // 벡터화 (Bag-of-Words 방식)
     function vectorizeText(tokens, vocabulary) {
-      const vector = new Float32Array(300);
+      const vector = new Float32Array(300); // MLP 입력 크기에 맞춤
       tokens.forEach(token => {
         const index = vocabulary.indexOf(token) % 300;
         if (index >= 0) vector[index] += 1;
@@ -172,13 +143,13 @@
       return vector;
     }
 
-    // 행렬 초기화
+    // 행렬 초기화 (랜덤 값으로)
     function initializeWeights(rows, cols) {
       const matrix = [];
       for (let i = 0; i < rows; i++) {
         const row = new Float32Array(cols);
         for (let j = 0; j < cols; j++) {
-          row[j] = (Math.random() - 0.5) * 0.1;
+          row[j] = (Math.random() - 0.5) * 0.1; // -0.05 ~ 0.05 사이 초기값
         }
         matrix.push(row);
       }
@@ -210,11 +181,11 @@
       return outputLayer;
     }
 
-    // MLP 훈련
+    // MLP 훈련 (간단한 경사 하강법)
     function trainMLP(data, epochs = 10, learningRate = 0.01) {
-      const inputSize = 300;
-      const hiddenSize = 128;
-      const outputSize = 10;
+      const inputSize = 300;  // 입력 벡터 크기
+      const hiddenSize = 128; // 은닉층 크기
+      const outputSize = 10;  // 출력 크기 (임의로 설정, 필요 시 조정 가능)
 
       if (!mlpWeights.inputToHidden) {
         mlpWeights.inputToHidden = initializeWeights(hiddenSize, inputSize);
@@ -224,7 +195,7 @@
       for (let epoch = 0; epoch < epochs; epoch++) {
         data.forEach(item => {
           const input = item.vector;
-          const target = new Float32Array(outputSize).map(() => Math.random());
+          const target = new Float32Array(outputSize).map(() => Math.random()); // 임시 타겟
           const hidden = relu(matrixMultiply(mlpWeights.inputToHidden, input));
           const output = matrixMultiply(mlpWeights.hiddenToOutput, hidden);
           const outputError = output.map((o, i) => target[i] - o);
@@ -258,13 +229,12 @@
       processedData = data;
     }
 
-    // 백엔드에서 학습 데이터 가져오기
+    // GitHub에서 학습 데이터 가져오기
     async function fetchAndProcessData() {
       try {
-        const response = await fetch(`${BACKEND_URL}/learning-data`, {
+        const response = await fetch(LEARNING_TEXT_URL, {
           method: 'GET',
           mode: 'cors',
-          credentials: 'include',
           headers: {
             'Content-Type': 'text/plain'
           }
@@ -292,97 +262,33 @@
       }
     }
 
-    // 의도 감지 (main.js에서 가져옴)
-    function detectIntentFromText(input) {
-      for (const intent in KEYWORDS) {
-        if (KEYWORDS[intent].some(keyword => input.includes(keyword))) {
-          return intent;
-        }
-      }
-      return 'unknown';
-    }
-
-    // 서버로 메시지 전송 및 의도 처리
-    async function sendMessage() {
-      const text = inputEl.value.trim();
-      if (!text) return;
-
-      appendBubble(text, 'user');
-      inputEl.value = '';
-
+    // 사용자 메시지 처리
+    function processMessage(text) {
       const tokens = tokenizeText(refineText(text));
       const inputVector = vectorizeText(tokens, vocabulary);
       const prediction = predictMLP(inputVector);
       console.log('MLP 예측 결과:', prediction);
-
-      const intent = detectIntentFromText(text);
-      let response = '';
-      let isHTML = false;
-      let shouldNavigate = false;
-      let navigateUrl = '';
-
-      // 사이트 링크 확인
-      for (let site in SITE_LINKS) {
-        if (text.includes(site)) {
-          response = `${site} 사이트로 이동합니다!`;
-          shouldNavigate = true;
-          navigateUrl = SITE_LINKS[site];
-          break;
-        }
-      }
-
-      // 의도에 따른 응답
-      if (!response) {
-        switch (intent) {
-          case 'greetings':
-            response = '안녕하세요!';
-            break;
-          case 'sleep':
-            response = '좋은 꿈 꾸세요!';
-            break;
-          case 'time':
-            const now = new Date();
-            response = `현재 시간은 ${now.getHours()}시 ${now.getMinutes()}분입니다.`;
-            break;
-          case 'weather':
-          case 'calendar':
-          case 'region':
-            response = `${intent} 기능은 준비 중입니다.`;
-            break;
-          default:
-            try {
-              const apiResponse = await fetch(`${BACKEND_URL}/send-message`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ message: text }),
-                mode: 'cors',
-                credentials: 'include'
-              });
-
-              if (!apiResponse.ok) {
-                throw new Error(`메시지 전송 실패: ${apiResponse.statusText}`);
-              }
-              const data = await apiResponse.json();
-              response = data.reply;
-            } catch (error) {
-              console.error('메시지 전송 중 오류:', error);
-              response = '서버와의 통신에 실패했습니다.';
-            }
-        }
-      }
-
-      appendBubble(response, 'bot');
-      if (shouldNavigate) {
-        setTimeout(() => { window.location.href = navigateUrl; }, 2000);
-      }
+      const reply = `👾 에코봇: "${text}"라고 하셨군요!`;
+      appendBubble(reply, 'bot');
     }
 
     // 이벤트 리스너 설정
-    sendBtn.addEventListener('click', sendMessage);
+    sendBtn.addEventListener('click', () => {
+      const text = inputEl.value.trim();
+      if (!text) return;
+      appendBubble(text, 'user');
+      inputEl.value = '';
+      processMessage(text);
+    });
+
     inputEl.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') sendMessage();
+      if (e.key === 'Enter') {
+        const text = inputEl.value.trim();
+        if (!text) return;
+        appendBubble(text, 'user');
+        inputEl.value = '';
+        processMessage(text);
+      }
     });
 
     // 초기화 실행

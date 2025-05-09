@@ -110,6 +110,7 @@
       hiddenToOutput: null  // 은닉층 -> 출력층 가중치
     };
     let processedData = null;
+    let vocabulary = [];  // 단어 사전
 
     // 채팅창에 메시지 추가
     function appendBubble(text, sender) {
@@ -120,12 +121,12 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // 텍스트 정제화
+    // 텍스트 정제화 (특수문자 제거 및 소문자 변환)
     function refineText(text) {
       return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '').toLowerCase().trim();
     }
 
-    // 단어 토큰화
+    // 일반 단어 토큰화 (공백 기준 분리)
     function tokenizeText(text) {
       return text.split(/\s+/).filter(word => word.length > 0);
     }
@@ -234,12 +235,12 @@
       processedData = data; // 처리된 데이터 저장
     }
 
-    // GitHub에서 "학습용.txt" 가져오기 및 처리
+    // 백엔드에서 "학습용.txt" 가져오기 및 처리
     async function fetchAndProcessData() {
       try {
-        // GitHub 루트 디렉토리에서 "학습용.txt" 파일 가져오기 (raw URL 사용)
-        const fileUrl = 'https://raw.githubusercontent.com/rnjsjergus179/rnjsjergus179/main/학습용.txt';
-        const response = await fetch(fileUrl);
+        // 백엔드 API URL 사용
+        const apiUrl = 'http://localhost:3000/api/learning-data';
+        const response = await fetch(apiUrl);
         if (!response.ok) throw new Error('학습용.txt 파일을 가져오지 못했습니다.');
         const text = await response.text();
         console.log('학습용.txt 파일을 성공적으로 가져왔습니다.');
@@ -250,7 +251,7 @@
         const tokenizedTexts = refinedTexts.map(text => tokenizeText(text));
 
         // 전체 단어 사전 생성
-        const vocabulary = [...new Set(tokenizedTexts.flat())];
+        vocabulary = [...new Set(tokenizedTexts.flat())];
         const vectorizedData = tokenizedTexts.map(tokens => ({
           tokens,
           vector: vectorizeText(tokens, vocabulary)

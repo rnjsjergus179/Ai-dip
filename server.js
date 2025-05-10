@@ -9,19 +9,9 @@ const PORT = process.env.PORT || 3000; // .env에서 PORT 사용, 기본값 3000
 // JSON body 파싱을 위한 미들웨어
 app.use(express.json());
 
-// CORS 설정 - .env에서 ALLOWED_ORIGIN을 필수로 사용, 특정 도메인만 허용
-const allowedOrigins = process.env.ALLOWED_ORIGIN ? process.env.ALLOWED_ORIGIN.split(',') : [];
+// CORS 설정 - 모든 도메인 허용
 app.use(cors({
-  origin: function (origin, callback) {
-    if (allowedOrigins.length === 0) {
-      return callback(new Error('CORS 설정 오류: ALLOWED_ORIGIN이 정의되지 않았습니다.'));
-    }
-    if (allowedOrigins.includes(origin) || !origin) {
-      callback(null, true);
-    } else {
-      callback(new Error('이 도메인은 CORS 정책에 의해 차단되었습니다.'));
-    }
-  },
+  origin: '*', // 모든 도메인에서 요청 허용
   methods: ['GET', 'POST'], // GET, POST 메서드 허용
   credentials: true // 인증 정보 포함 허용
 }));

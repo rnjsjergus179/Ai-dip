@@ -109,6 +109,7 @@
 
     // 백엔드에서 API 키, LEARNING_TEXT_URL, PORT 가져오기
     async function fetchBackendData() {
+      console.log('[INFO] 백엔드 설정을 요청합니다...');
       try {
         const response = await fetch(`http://localhost:${BACKEND_PORT}/api/config`);
         if (!response.ok) throw new Error('백엔드 설정을 가져오지 못했습니다.');
@@ -116,10 +117,11 @@
         MY_API_KEY = data.apiKey;
         LEARNING_TEXT_URL = data.learningUrl;
         BACKEND_PORT = data.port || 3000; // .env에서 가져온 PORT 사용
-        console.log('[SUCCESS] 백엔드 설정을 성공적으로 가져왔습니다.');
+        console.log('[SUCCESS] 백엔드 설정을 성공적으로 가져왔습니다:', { MY_API_KEY, LEARNING_TEXT_URL, BACKEND_PORT });
       } catch (error) {
         console.error('[ERROR] 백엔드 설정 가져오기 실패:', error.message);
       }
+      console.log('[INFO] 백엔드 설정 요청 완료');
     }
 
     // Web Worker 설정 (inline으로 작성)
@@ -364,6 +366,7 @@
       // 데이터 로드 및 처리
       async function loadData(apiKey, learningUrl) {
         let allTokens = [];
+        console.log('[INFO] 학습용.txt 파일을 요청합니다:', learningUrl);
         try {
           const response = await fetch(learningUrl, { 
             method: 'GET', 
@@ -372,13 +375,14 @@
           });
           if (!response.ok) throw new Error('데이터 로드 실패');
           const text = await response.text();
+          console.log('[SUCCESS] 학습용.txt 파일을 성공적으로 가져왔습니다:', learningUrl);
           const lines = text.split('\\n').filter(line => line.trim());
           const tokenizedTexts = lines.map(line => tokenizeText(refineText(line)));
           allTokens = allTokens.concat(tokenizedTexts.flat());
-          console.log('[SUCCESS] 데이터 로드 완료:', learningUrl);
         } catch (error) {
-          console.error('[ERROR] 데이터 로드 실패:', error.message);
+          console.error('[ERROR] 학습용.txt 파일 가져오기 실패:', error.message);
         }
+        console.log('[INFO] 학습용.txt 파일 요청 및 처리 완료');
         vocabulary = [...new Set(allTokens)];
         mlpSnnModel = new MLPSNN(300, 128, 64, 5);
         conversationHistory = JSON.parse(localStorage.getItem('conversationHistory')) || [];

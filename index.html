@@ -103,43 +103,309 @@
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');
 
-    // GitHub raw 파일 URL
-    const LEARNING_TEXT_URL = 'https://raw.githubusercontent.com/rnjsjergus179/-/main/학습용.txt';
+    // Web Worker 설정 (inline으로 작성)
+    const workerScript = `
+      const LEARNING_URLS = [
+        'https://raw.githubusercontent.com/rnjsjergus179/-/main/학습용.txt',
+        'https://raw.githubusercontent.com/rnjsjergus179/-/main/docs/sayns.txt',
+        'https://raw.githubusercontent.com/rnjsjergus179/-/main/docs/자동저장2.txt'
+      ];
 
-    // MLP 모델 파라미터 및 데이터
-    let mlpWeights = { inputToHidden: null, hiddenToOutput: null };
-    let processedData = [];
-    let vocabulary = [];
+      let vocabulary = [];
+      let mlpSnnModel = null;
+      let intentGroups = { greeting: [], question: [], request: [], science: [], unknown: [] };
+      let conversationHistory = [];
 
-    // Transformer Decoder 파라미터
-    const transformerConfig = {
-      dModel: 64,    // 임베딩 차원
-      nHeads: 4,     // Multi-Head Attention의 헤드 수
-      dFF: 128,      // FFN의 중간 차원
-      nLayers: 2,    // Decoder 블록 수
-      vocabSize: 0,  // 초기화 시 설정
-      maxLen: 50     // 최대 시퀀스 길이
-    };
-    let transformerWeights = null;
+      // 텍스트 정제화
+      function refineText(text) {
+        return text.replace(/[^가-힣a-zA-Z0-9\\s]/g, '').toLowerCase().trim();
+      }
 
-    // NLU 엔진 정의
-    const nluEngine = {
-      intents: {
-        greeting: {
-          keywords: ["안녕", "하이", "반가워", "hello", "hi"],
-          responses: ["안녕하세요!", "반갑습니다!", "안녕!"]
-        },
-        question: {
-          keywords: ["무엇", "어떻게", "왜", "누구", "언제", "어디", "what", "how", "why", "who", "when", "where"],
-          responses: ["질문에 대한 답변을 준비 중입니다.", "질문을 이해했습니다. 곧 답변드리겠습니다.", "질문이 도착했습니다!"]
-        },
-        request: {
-          keywords: ["부탁", "요청", "해줘", "해주세요", "please", "can you", "could you"],
-          responses: ["요청을 처리 중입니다.", "부탁하신 내용을 확인했습니다.", "곧 도와드리겠습니다!"]
+      // 토큰화
+      function tokenizeText(text) {
+        return text.split(/\\s+/).filter(word => word.length > 0);
+      }
+
+      // 백터화 (300차원 Bag-of-Words)
+      function vectorizeText(tokens, vocab) {
+        const vector = new Array(300).fill(0);
+        tokens.forEach(token => {
+          const index = vocab.indexOf(token) % 300;
+          if (index >= 0) vector[index] += 1;
+        });
+        return vector;
+      }
+
+      // 벡터를 010101 스파이크로 변환
+      function vectorToSpikes(vector) {
+        return vector.map(val => val > 0 ? 1 : 0);
+      }
+
+      // MLP-SNN 융합 모델
+      class MLPSNN {
+        constructor(inputSize, mlpHiddenSize, snnHiddenSize, outputSize) {
+          this.inputSize = inputSize;
+          this.mlpHiddenSize = mlpHiddenSize;
+          this.snnHiddenSize = snnHiddenSize;
+          this.outputSize = outputSize;
+
+          // MLP 가중치 초기화
+          this.mlpWeightsIH = this.initializeWeights(mlpHiddenSize, inputSize);
+          this.mlpWeightsHH = this.initializeWeights(mlpHiddenSize, mlpHiddenSize);
+          this.mlpWeightsHO = this.initializeWeights(snnHiddenSize, mlpHiddenSize);
+
+          // SNN 가중치 초기화
+          this.snnWeightsIH = this.initializeWeights(snnHiddenSize, snnHiddenSize);
+          this.snnWeightsHO = this.initializeWeights(outputSize, snnHiddenSize);
+
+          this.threshold = 1.0;
+          this.leak = 0.9;
+          this.membrane = new Array(snnHiddenSize).fill(0);
         }
-      },
-      defaultResponse: "죄송합니다, 이해하지 못했습니다."
-    };
+
+        initializeWeights(rows, cols) {
+          const savedWeights = localStorage.getItem(\`weights_\${rows}x\${cols}\`);
+          if (savedWeights) {
+            return JSON.parse(savedWeights);
+          }
+          const weights = new Array(rows).fill(0).map(() => 
+            new Array(cols).fill(0).map(() => Math.random() - 0.5));
+          localStorage.setItem(\`weights_\${rows}x\${cols}\`, JSON.stringify(weights));
+          return weights;
+        }
+
+        relu(x) {
+          return Math.max(0, x);
+        }
+
+        // MLP 전방 전달 (다층)
+        mlpForward(input) {
+          const hidden1 = new Array(this.mlpHiddenSize).fill(0).map((_, i) => {
+            let sum = 0;
+            for (let j = 0; j < this.inputSize; j++) {
+              sum += this.mlpWeightsIH[i][j] * input[j];
+            }
+            return this.relu(sum);
+          });
+
+          const hidden2 = new Array(this.mlpHiddenSize).fill(0).map((_, i) => {
+            let sum = 0;
+            for (let j = 0; j < this.mlpHiddenSize; j++) {
+              sum += this.mlpWeightsHH[i][j] * hidden1[j];
+            }
+            return this.relu(sum);
+          });
+
+          const mlpOutput = new Array(this.snnHiddenSize).fill(0).map((_, i) => {
+            let sum = 0;
+            for (let j = 0; j < this.mlpHiddenSize; j++) {
+              sum += this.mlpWeightsHO[i][j] * hidden2[j];
+            }
+            return sum;
+          });
+
+          return { hidden1, hidden2, mlpOutput };
+        }
+
+        // SNN 예측 (스파이킹 뉴런)
+        snnPredict(mlpOutput) {
+          const spikesInput = vectorToSpikes(mlpOutput);
+          const hiddenSpikes = new Array(this.snnHiddenSize).fill(0);
+          const outputSpikes = new Array(this.outputSize).fill(0);
+
+          for (let t = 0; t < 10; t++) {
+            for (let i = 0; i < this.snnHiddenSize; i++) {
+              let sum = 0;
+              for (let j = 0; j < this.snnHiddenSize; j++) {
+                sum += this.snnWeightsIH[i][j] * spikesInput[j];
+              }
+              this.membrane[i] = this.membrane[i] * this.leak + sum;
+              if (this.membrane[i] > this.threshold) {
+                hiddenSpikes[i] = 1;
+                this.membrane[i] = 0;
+              } else {
+                hiddenSpikes[i] = 0;
+              }
+            }
+
+            for (let i = 0; i < this.outputSize; i++) {
+              let sum = 0;
+              for (let j = 0; j < this.snnHiddenSize; j++) {
+                sum += this.snnWeightsHO[i][j] * hiddenSpikes[j];
+              }
+              outputSpikes[i] += sum;
+            }
+          }
+
+          const maxIndex = outputSpikes.indexOf(Math.max(...outputSpikes));
+          return ['greeting', 'question', 'request', 'science', 'unknown'][maxIndex];
+        }
+
+        // 전체 예측
+        predict(input) {
+          const { mlpOutput } = this.mlpForward(input);
+          return this.snnPredict(mlpOutput);
+        }
+
+        // 역전파 학습
+        train(input, target, learningRate = 0.01) {
+          const { hidden1, hidden2, mlpOutput } = this.mlpForward(input);
+          const outputSpikes = new Array(this.outputSize).fill(0);
+          const targetVector = new Array(this.outputSize).fill(0);
+          const intentIndex = ['greeting', 'question', 'request', 'science', 'unknown'].indexOf(target);
+          targetVector[intentIndex] = 1;
+
+          // SNN 출력 계산
+          const spikesInput = vectorToSpikes(mlpOutput);
+          for (let t = 0; t < 10; t++) {
+            const hiddenSpikes = new Array(this.snnHiddenSize).fill(0);
+            for (let i = 0; i < this.snnHiddenSize; i++) {
+              let sum = 0;
+              for (let j = 0; j < this.snnHiddenSize; j++) {
+                sum += this.snnWeightsIH[i][j] * spikesInput[j];
+              }
+              this.membrane[i] = this.membrane[i] * this.leak + sum;
+              if (this.membrane[i] > this.threshold) {
+                hiddenSpikes[i] = 1;
+                this.membrane[i] = 0;
+              }
+            }
+            for (let i = 0; i < this.outputSize; i++) {
+              let sum = 0;
+              for (let j = 0; j < this.snnHiddenSize; j++) {
+                sum += this.snnWeightsHO[i][j] * hiddenSpikes[j];
+              }
+              outputSpikes[i] += sum;
+            }
+          }
+
+          // 오차 계산
+          const outputError = outputSpikes.map((o, i) => targetVector[i] - o);
+
+          // SNN 가중치 업데이트
+          for (let i = 0; i < this.outputSize; i++) {
+            for (let j = 0; j < this.snnHiddenSize; j++) {
+              this.snnWeightsHO[i][j] += learningRate * outputError[i] * spikesInput[j];
+            }
+          }
+
+          // MLP 가중치 업데이트 (간소화된 역전파)
+          const mlpError = new Array(this.snnHiddenSize).fill(0).map((_, i) => {
+            let sum = 0;
+            for (let j = 0; j < this.outputSize; j++) {
+              sum += this.snnWeightsHO[j][i] * outputError[j];
+            }
+            return sum;
+          });
+
+          for (let i = 0; i < this.snnHiddenSize; i++) {
+            for (let j = 0; j < this.mlpHiddenSize; j++) {
+              this.mlpWeightsHO[i][j] += learningRate * mlpError[i] * hidden2[j];
+            }
+          }
+
+          this.saveWeights();
+        }
+
+        saveWeights() {
+          localStorage.setItem('weights_\${this.mlpHiddenSize}x\${this.inputSize}', JSON.stringify(this.mlpWeightsIH));
+          localStorage.setItem('weights_\${this.mlpHiddenSize}x\${this.mlpHiddenSize}', JSON.stringify(this.mlpWeightsHH));
+          localStorage.setItem('weights_\${this.snnHiddenSize}x\${this.mlpHiddenSize}', JSON.stringify(this.mlpWeightsHO));
+          localStorage.setItem('weights_\${this.snnHiddenSize}x\${this.snnHiddenSize}', JSON.stringify(this.snnWeightsIH));
+          localStorage.setItem('weights_\${this.outputSize}x\${this.snnHiddenSize}', JSON.stringify(this.snnWeightsHO));
+        }
+      }
+
+      // 베르니케 영역 (언어 이해)
+      function wernickeArea(text) {
+        const tokens = tokenizeText(refineText(text));
+        return vectorizeText(tokens, vocabulary);
+      }
+
+      // 브로카 영역 (언어 생성)
+      function brocaArea(intent) {
+        const responses = {
+          greeting: ["안녕하세요!", "반갑습니다!", "안녕!"],
+          question: ["질문에 대한 답변을 준비 중입니다.", "곧 답변드리겠습니다."],
+          request: ["요청을 처리 중입니다.", "곧 도와드리겠습니다!"],
+          science: ["과학 관련 질문이군요!", "흥미로운 주제입니다!"],
+          unknown: ["죄송합니다, 이해하지 못했습니다."]
+        };
+        const responseList = responses[intent] || responses['unknown'];
+        return responseList[Math.floor(Math.random() * responseList.length)];
+      }
+
+      // 각회 (시각 처리 - 텍스트 기반이므로 의도 분류로 대체)
+      function angularGyrus(text) {
+        const tokens = tokenizeText(refineText(text));
+        return tokens.length > 0 ? 'valid' : 'invalid';
+      }
+
+      // 전전두엽 (의사 결정 및 계획)
+      function prefrontalCortex(text, intent) {
+        if (angularGyrus(text) === 'invalid') return 'unknown';
+        return intent === 'unknown' && conversationHistory.length > 0 ? 
+          identifyIntent(conversationHistory[conversationHistory.length - 1]) : intent;
+      }
+
+      // 데이터 로드 및 처리
+      async function loadData() {
+        let allTokens = [];
+        for (const url of LEARNING_URLS) {
+          const response = await fetch(url, { method: 'GET', mode: 'cors' });
+          if (!response.ok) continue;
+          const text = await response.text();
+          const lines = text.split('\\n').filter(line => line.trim());
+          const tokenizedTexts = lines.map(line => tokenizeText(refineText(line)));
+          allTokens = allTokens.concat(tokenizedTexts.flat());
+        }
+        vocabulary = [...new Set(allTokens)];
+        mlpSnnModel = new MLPSNN(300, 128, 64, 5);
+        conversationHistory = JSON.parse(localStorage.getItem('conversationHistory')) || [];
+      }
+
+      // 의도 식별
+      function identifyIntent(text) {
+        const vector = wernickeArea(text);
+        return mlpSnnModel.predict(vector);
+      }
+
+      // 자동 스파이킹 및 순환
+      function autoSpike() {
+        if (conversationHistory.length > 0) {
+          const lastText = conversationHistory[conversationHistory.length - 1];
+          const intent = identifyIntent(lastText);
+          intentGroups[intent].push(lastText);
+          mlpSnnModel.train(wernickeArea(lastText), intent);
+        }
+      }
+
+      setInterval(autoSpike, 5000); // 5초마다 자동 스파이킹
+
+      // Worker 메시지 처리
+      self.onmessage = function(e) {
+        const { type, text } = e.data;
+        if (type === 'process') {
+          conversationHistory.push(text);
+          localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
+          const intent = identifyIntent(text);
+          const refinedIntent = prefrontalCortex(text, intent);
+          const reply = brocaArea(refinedIntent);
+          mlpSnnModel.train(wernickeArea(text), refinedIntent);
+          self.postMessage({ type: 'processed', data: { intent: refinedIntent, reply: \`👾 챗봇: \${reply}\` } });
+        }
+      };
+
+      // 자동 저장
+      setInterval(() => {
+        if (mlpSnnModel) mlpSnnModel.saveWeights();
+      }, 10000); // 10초마다 자동 저장
+
+      loadData();
+    `;
+
+    const blob = new Blob([workerScript], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
 
     // 채팅창에 메시지 추가
     function appendBubble(text, sender) {
@@ -150,331 +416,40 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // 텍스트 정제화
-    function refineText(text) {
-      return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '').toLowerCase().trim();
-    }
-
-    // 토큰화
-    function tokenizeText(text) {
-      return text.split(/\s+/).filter(word => word.length > 0);
-    }
-
-    // 벡터화 (Bag-of-Words, MLP용)
-    function vectorizeText(tokens, vocabulary) {
-      const vector = new Float32Array(300);
-      tokens.forEach(token => {
-        const index = vocabulary.indexOf(token) % 300;
-        if (index >= 0) vector[index] += 1;
-      });
-      return vector;
-    }
-
-    // 행렬 초기화
-    function initializeWeights(rows, cols) {
-      const matrix = [];
-      for (let i = 0; i < rows; i++) {
-        const row = new Float32Array(cols);
-        for (let j = 0; j < cols; j++) {
-          row[j] = (Math.random() - 0.5) * 0.1;
-        }
-        matrix.push(row);
+    // Worker로부터 메시지 수신
+    worker.onmessage = function(e) {
+      const { type, data } = e.data;
+      if (type === 'processed') {
+        const { reply } = data;
+        appendBubble(reply, 'bot');
       }
-      return matrix;
-    }
+    };
 
-    // 행렬 곱셈
-    function matrixMultiply(matrix, vector) {
-      const result = new Float32Array(matrix.length);
-      for (let i = 0; i < matrix.length; i++) {
-        let sum = 0;
-        for (let j = 0; j < vector.length; j++) {
-          sum += matrix[i][j] * vector[j];
-        }
-        result[i] = sum;
-      }
-      return result;
-    }
-
-    // ReLU 활성화 함수
-    function relu(vector) {
-      return vector.map(x => Math.max(0, x));
-    }
-
-    // MLP 예측
-    function predictMLP(inputVector) {
-      const hiddenLayer = relu(matrixMultiply(mlpWeights.inputToHidden, inputVector));
-      return matrixMultiply(mlpWeights.hiddenToOutput, hiddenLayer);
-    }
-
-    // MLP 훈련
-    function trainMLP(data, epochs = 10, learningRate = 0.01) {
-      const inputSize = 300;
-      const hiddenSize = 128;
-      const outputSize = 10;
-
-      if (!mlpWeights.inputToHidden) {
-        mlpWeights.inputToHidden = initializeWeights(hiddenSize, inputSize);
-        mlpWeights.hiddenToOutput = initializeWeights(outputSize, hiddenSize);
-      }
-
-      for (let epoch = 0; epoch < epochs; epoch++) {
-        data.forEach(item => {
-          const input = item.vector;
-          const target = new Float32Array(outputSize).map(() => Math.random());
-          const hidden = relu(matrixMultiply(mlpWeights.inputToHidden, input));
-          const output = matrixMultiply(mlpWeights.hiddenToOutput, hidden);
-          const outputError = output.map((o, i) => target[i] - o);
-
-          for (let i = 0; i < mlpWeights.hiddenToOutput.length; i++) {
-            for (let j = 0; j < mlpWeights.hiddenToOutput[i].length; j++) {
-              mlpWeights.hiddenToOutput[i][j] += outputError[i] * hidden[j] * learningRate;
-            }
-          }
-
-          const hiddenError = new Float32Array(hiddenSize);
-          for (let i = 0; i < hiddenSize; i++) {
-            let errorSum = 0;
-            for (let j = 0; j < outputSize; j++) {
-              errorSum += outputError[j] * mlpWeights.hiddenToOutput[j][i];
-            }
-            hiddenError[i] = errorSum * (hidden[i] > 0 ? 1 : 0);
-          }
-
-          for (let i = 0; i < mlpWeights.inputToHidden.length; i++) {
-            for (let j = 0; j < mlpWeights.inputToHidden[i].length; j++) {
-              mlpWeights.inputToHidden[i][j] += hiddenError[i] * input[j] * learningRate;
-            }
-          }
-        });
-      }
-    }
-
-    // Transformer 관련 함수
-    function createPositionalEncoding(maxLen, dModel) {
-      const pe = [];
-      for (let i = 0; i < maxLen; i++) {
-        const row = new Float32Array(dModel);
-        for (let j = 0; j < dModel; j++) {
-          row[j] = j % 2 === 0
-            ? Math.sin(i / Math.pow(10000, j / dModel))
-            : Math.cos(i / Math.pow(10000, (j - 1) / dModel));
-        }
-        pe.push(row);
-      }
-      return pe;
-    }
-
-    function softmax(arr) {
-      const max = Math.max(...arr);
-      const exp = arr.map(x => Math.exp(x - max));
-      const sum = exp.reduce((a, b) => a + b, 0);
-      return exp.map(x => x / sum);
-    }
-
-    function multiHeadSelfAttention(x, weights, nHeads, dModel) {
-      const dK = dModel / nHeads;
-      const seqLen = x.length;
-
-      const Q = matrixMultiply(weights.WQ, x.flat());
-      const K = matrixMultiply(weights.WK, x.flat());
-      const V = matrixMultiply(weights.WV, x.flat());
-
-      const Qs = splitHeads(Q, seqLen, nHeads, dK);
-      const Ks = splitHeads(K, seqLen, nHeads, dK);
-      const Vs = splitHeads(V, seqLen, nHeads, dK);
-
-      const attention = [];
-      for (let h = 0; h < nHeads; h++) {
-        const scores = matrixMultiply(Qs[h], Ks[h].map(row => row.slice()).transpose());
-        const scaledScores = scores.map(row => row.map(val => val / Math.sqrt(dK)));
-        const attnWeights = scaledScores.map(row => softmax(row));
-        const output = matrixMultiply(attnWeights, Vs[h]);
-        attention.push(output);
-      }
-
-      const concat = attention.flat(2);
-      return matrixMultiply(weights.WO, concat.flat());
-    }
-
-    function splitHeads(tensor, seqLen, nHeads, dK) {
-      const heads = [];
-      for (let h = 0; h < nHeads; h++) {
-        const head = [];
-        for (let i = 0; i < seqLen; i++) {
-          const start = h * dK;
-          head.push(tensor.slice(i * transformerConfig.dModel + start, start + dK));
-        }
-        heads.push(head);
-      }
-      return heads;
-    }
-
-    function feedForwardNetwork(x, weights) {
-      const hidden = relu(matrixMultiply(weights.W1, x));
-      return matrixMultiply(weights.W2, hidden);
-    }
-
-    function layerNorm(x) {
-      const mean = x.reduce((a, b) => a + b, 0) / x.length;
-      const variance = x.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / x.length;
-      return x.map(val => (val - mean) / Math.sqrt(variance + 1e-5));
-    }
-
-    function decoderBlock(x, weights) {
-      let x1 = layerNorm(x);
-      const x2 = multiHeadSelfAttention(x1, weights.mhsa, transformerConfig.nHeads, transformerConfig.dModel);
-      x = x.map((val, i) => val + x2[i]); // Residual
-      let x3 = layerNorm(x);
-      const x4 = feedForwardNetwork(x3, weights.ffn);
-      return x.map((val, i) => val + x4[i]); // Residual
-    }
-
-    function initializeTransformerWeights() {
-      transformerWeights = {
-        embedding: initializeWeights(transformerConfig.vocabSize, transformerConfig.dModel),
-        decoder: Array(transformerConfig.nLayers).fill().map(() => ({
-          mhsa: {
-            WQ: initializeWeights(transformerConfig.dModel, transformerConfig.dModel),
-            WK: initializeWeights(transformerConfig.dModel, transformerConfig.dModel),
-            WV: initializeWeights(transformerConfig.dModel, transformerConfig.dModel),
-            WO: initializeWeights(transformerConfig.dModel, transformerConfig.dModel)
-          },
-          ffn: {
-            W1: initializeWeights(transformerConfig.dFF, transformerConfig.dModel),
-            W2: initializeWeights(transformerConfig.dModel, transformerConfig.dFF)
-          }
-        })),
-        output: initializeWeights(transformerConfig.vocabSize, transformerConfig.dModel)
-      };
-    }
-
-    function transformerDecode(inputIds) {
-      if (!transformerWeights) initializeTransformerWeights();
-      const pe = createPositionalEncoding(transformerConfig.maxLen, transformerConfig.dModel);
-      let x = inputIds.map(id => transformerWeights.embedding[id]);
-      x = x.map((emb, i) => emb.map((val, j) => val + pe[i][j]));
-
-      for (let i = 0; i < transformerConfig.nLayers; i++) {
-        x = decoderBlock(x, transformerWeights.decoder[i]);
-      }
-
-      const logits = matrixMultiply(transformerWeights.output, x[x.length - 1]);
-      const probs = softmax(logits);
-      const nextTokenId = probs.indexOf(Math.max(...probs));
-      return vocabulary[nextTokenId] || nluEngine.defaultResponse;
-    }
-
-    // 데이터 로드 및 저장
-    function loadModelAndData() {
-      const savedWeights = localStorage.getItem('mlpWeights');
-      const savedData = localStorage.getItem('processedData');
-      const savedVocab = localStorage.getItem('vocabulary');
-      const savedTransformer = localStorage.getItem('transformerWeights');
-
-      if (savedWeights) {
-        mlpWeights = JSON.parse(savedWeights);
-        mlpWeights.inputToHidden = mlpWeights.inputToHidden.map(row => new Float32Array(row));
-        mlpWeights.hiddenToOutput = mlpWeights.hiddenToOutput.map(row => new Float32Array(row));
-      }
-      if (savedData) {
-        processedData = JSON.parse(savedData).map(item => ({
-          tokens: item.tokens,
-          vector: new Float32Array(item.vector)
-        }));
-      }
-      if (savedVocab) {
-        vocabulary = JSON.parse(savedVocab);
-        transformerConfig.vocabSize = vocabulary.length;
-      }
-      if (savedTransformer) {
-        transformerWeights = JSON.parse(savedTransformer);
-        // Float32Array로 변환 생략 (단순화)
-      }
-    }
-
-    function saveModelAndData() {
-      localStorage.setItem('mlpWeights', JSON.stringify({
-        inputToHidden: mlpWeights.inputToHidden.map(row => Array.from(row)),
-        hiddenToOutput: mlpWeights.hiddenToOutput.map(row => Array.from(row))
-      }));
-      localStorage.setItem('processedData', JSON.stringify(processedData.map(item => ({
-        tokens: item.tokens,
-        vector: Array.from(item.vector)
-      }))));
-      localStorage.setItem('vocabulary', JSON.stringify(vocabulary));
-      localStorage.setItem('transformerWeights', JSON.stringify(transformerWeights));
-    }
-
-    async function fetchAndProcessData() {
-      try {
-        const response = await fetch(LEARNING_TEXT_URL, { mode: 'cors' });
-        if (!response.ok) throw new Error('데이터 가져오기 실패');
-        const text = await response.text();
-        const lines = text.split('\n').filter(line => line.trim());
-        const refinedTexts = lines.map(line => refineText(line));
-        const tokenizedTexts = refinedTexts.map(text => tokenizeText(text));
-
-        vocabulary = [...new Set(tokenizedTexts.flat())];
-        transformerConfig.vocabSize = vocabulary.length;
-        const vectorizedData = tokenizedTexts.map(tokens => ({
-          tokens,
-          vector: vectorizeText(tokens, vocabulary)
-        }));
-
-        processedData = vectorizedData;
-        trainMLP(processedData);
-        saveModelAndData();
-      } catch (error) {
-        console.error(error);
-        appendBubble('챗봇 초기화 실패', 'bot');
-      }
-    }
-
-    // 의도 식별 및 응답 생성
-    function identifyIntent(text) {
-      const tokens = tokenizeText(refineText(text));
-      for (const [intent, data] of Object.entries(nluEngine.intents)) {
-        if (tokens.some(token => data.keywords.includes(token))) return intent;
-      }
-      return null;
-    }
-
+    // 메시지 처리
     function processMessage(text) {
-      const tokens = tokenizeText(refineText(text));
-      const inputVector = vectorizeText(tokens, vocabulary);
-      appendBubble(`사용자 입력 벡터: [${inputVector.slice(0, 5).join(', ')} ...]`, 'user');
-
-      const newData = { tokens, vector: inputVector };
-      processedData.push(newData);
-      trainMLP([newData], 1);
-      saveModelAndData();
-
-      const intent = identifyIntent(text);
-      const inputIds = tokens.map(t => vocabulary.indexOf(t)).filter(id => id >= 0);
-      const transformerResponse = transformerDecode(inputIds);
-      const reply = `👾 에코봇: ${intent ? transformerResponse : nluEngine.defaultResponse}`;
-      appendBubble(reply, 'bot');
+      appendBubble(text, 'user');
+      worker.postMessage({ type: 'process', text });
     }
 
     // 이벤트 설정
     sendBtn.addEventListener('click', () => {
       const text = inputEl.value.trim();
-      if (!text) return;
-      appendBubble(text, 'user');
-      inputEl.value = '';
-      processMessage(text);
+      if (text) {
+        inputEl.value = '';
+        processMessage(text);
+      }
     });
 
     inputEl.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') sendBtn.click();
+      if (e.key === 'Enter' && inputEl.value.trim()) {
+        processMessage(inputEl.value.trim());
+        inputEl.value = '';
+      }
     });
 
     // 초기화
     (async function init() {
-      loadModelAndData();
-      if (!mlpWeights.inputToHidden) await fetchAndProcessData();
-      appendBubble('안녕하세요! 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
+      appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
     })();
   </script>
 </body>

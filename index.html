@@ -103,45 +103,45 @@
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');
 
+    // Render에서 제공하는 백엔드 URL (실제 배포 URL로 교체 필요)
+    const BACKEND_URL = 'https://your-backend.onrender.com'; // 실제 Render 백엔드 도메인으로 변경
     let MY_API_KEY = '';
     let LEARNING_TEXT_URL = '';
-    let BACKEND_PORT = 3000; // 기본값
+    let isWorkerInitialized = false;
 
-    // 백엔드에서 API 키, LEARNING_TEXT_URL, PORT 가져오기
+    // 백엔드에서 API 키와 학습 URL 가져오기
     async function fetchBackendData() {
       console.log('[INFO] 백엔드 설정을 요청합니다...');
       try {
-        const response = await fetch(`http://localhost:${BACKEND_PORT}/api/config`);
-        if (!response.ok) throw new Error('백엔드 설정을 가져오지 못했습니다.');
+        const response = await fetch(`${BACKEND_URL}/api/config`, { method: 'GET', mode: 'cors' });
+        if (!response.ok) throw new Error(`백엔드 응답 실패: ${response.status} ${response.statusText}`);
         const data = await response.json();
         MY_API_KEY = data.apiKey;
         LEARNING_TEXT_URL = data.learningUrl;
-        BACKEND_PORT = data.port || 3000; // .env에서 가져온 PORT 사용
-        console.log('[SUCCESS] 백엔드 설정을 성공적으로 가져왔습니다:', { MY_API_KEY, LEARNING_TEXT_URL, BACKEND_PORT });
+        console.log('[SUCCESS] 백엔드 설정을 성공적으로 가져왔습니다:', { MY_API_KEY, LEARNING_TEXT_URL });
+        return true;
       } catch (error) {
         console.error('[ERROR] 백엔드 설정 가져오기 실패:', error.message);
+        appendBubble('👾 챗봇: 백엔드 연결에 실패했습니다. 서버를 확인해주세요.', 'bot');
+        return false;
       }
-      console.log('[INFO] 백엔드 설정 요청 완료');
     }
 
-    // Web Worker 설정 (inline으로 작성)
+    // Web Worker 스크립트
     const workerScript = `
       let vocabulary = [];
       let mlpSnnModel = null;
       let intentGroups = { greeting: [], question: [], request: [], science: [], unknown: [] };
       let conversationHistory = [];
 
-      // 텍스트 정제화
       function refineText(text) {
         return text.replace(/[^가-힣a-zA-Z0-9\\s]/g, '').toLowerCase().trim();
       }
 
-      // 토큰화
       function tokenizeText(text) {
         return text.split(/\\s+/).filter(word => word.length > 0);
       }
 
-      // 백터화 (300차원 Bag-of-Words)
       function vectorizeText(tokens, vocab) {
         const vector = new Array(300).fill(0);
         tokens.forEach(token => {
@@ -151,12 +151,10 @@
         return vector;
       }
 
-      // 벡터를 010101 스파이크로 변환
       function vectorToSpikes(vector) {
         return vector.map(val => val > 0 ? 1 : 0);
       }
 
-      // MLP-SNN 융합 모델
       class MLPSNN {
         constructor(inputSize, mlpHiddenSize, snnHiddenSize, outputSize) {
           this.inputSize = inputSize;
@@ -164,12 +162,9 @@
           this.snnHiddenSize = snnHiddenSize;
           this.outputSize = outputSize;
 
-          // MLP 가중치 초기화
           this.mlpWeightsIH = this.initializeWeights(mlpHiddenSize, inputSize);
           this.mlpWeightsHH = this.initializeWeights(mlpHiddenSize, mlpHiddenSize);
           this.mlpWeightsHO = this.initializeWeights(snnHiddenSize, mlpHiddenSize);
-
-          // SNN 가중치 초기화
           this.snnWeightsIH = this.initializeWeights(snnHiddenSize, snnHiddenSize);
           this.snnWeightsHO = this.initializeWeights(outputSize, snnHiddenSize);
 
@@ -180,20 +175,15 @@
 
         initializeWeights(rows, cols) {
           const savedWeights = localStorage.getItem(\`weights_\${rows}x\${cols}\`);
-          if (savedWeights) {
-            return JSON.parse(savedWeights);
-          }
-          const weights = new Array(rows).fill(0).map(() => 
+          if (savedWeights) return JSON.parse(savedWeights);
+          return new Array(rows).fill(0).map(() => 
             new Array(cols).fill(0).map(() => Math.random() - 0.5));
-          localStorage.setItem(\`weights_\${rows}x\${cols}\`, JSON.stringify(weights));
-          return weights;
         }
 
         relu(x) {
           return Math.max(0, x);
         }
 
-        // MLP 전방 전달 (다층)
         mlpForward(input) {
           const hidden1 = new Array(this.mlpHiddenSize).fill(0).map((_, i) => {
             let sum = 0;
@@ -222,7 +212,6 @@
           return { hidden1, hidden2, mlpOutput };
         }
 
-        // SNN 예측 (스파이킹 뉴런)
         snnPredict(mlpOutput) {
           const spikesInput = vectorToSpikes(mlpOutput);
           const hiddenSpikes = new Array(this.snnHiddenSize).fill(0);
@@ -256,13 +245,11 @@
           return ['greeting', 'question', 'request', 'science', 'unknown'][maxIndex];
         }
 
-        // 전체 예측
         predict(input) {
           const { mlpOutput } = this.mlpForward(input);
           return this.snnPredict(mlpOutput);
         }
 
-        // 역전파 학습
         train(input, target, learningRate = 0.01) {
           const { hidden1, hidden2, mlpOutput } = this.mlpForward(input);
           const outputSpikes = new Array(this.outputSize).fill(0);
@@ -270,7 +257,6 @@
           const intentIndex = ['greeting', 'question', 'request', 'science', 'unknown'].indexOf(target);
           targetVector[intentIndex] = 1;
 
-          // SNN 출력 계산
           const spikesInput = vectorToSpikes(mlpOutput);
           for (let t = 0; t < 10; t++) {
             const hiddenSpikes = new Array(this.snnHiddenSize).fill(0);
@@ -294,17 +280,13 @@
             }
           }
 
-          // 오차 계산
           const outputError = outputSpikes.map((o, i) => targetVector[i] - o);
-
-          // SNN 가중치 업데이트
           for (let i = 0; i < this.outputSize; i++) {
             for (let j = 0; j < this.snnHiddenSize; j++) {
               this.snnWeightsHO[i][j] += learningRate * outputError[i] * spikesInput[j];
             }
           }
 
-          // MLP 가중치 업데이트 (간소화된 역전파)
           const mlpError = new Array(this.snnHiddenSize).fill(0).map((_, i) => {
             let sum = 0;
             for (let j = 0; j < this.outputSize; j++) {
@@ -319,25 +301,24 @@
             }
           }
 
-          this.saveWeights();
-        }
-
-        saveWeights() {
-          localStorage.setItem('weights_\${this.mlpHiddenSize}x\${this.inputSize}', JSON.stringify(this.mlpWeightsIH));
-          localStorage.setItem('weights_\${this.mlpHiddenSize}x\${this.mlpHiddenSize}', JSON.stringify(this.mlpWeightsHH));
-          localStorage.setItem('weights_\${this.snnHiddenSize}x\${this.mlpHiddenSize}', JSON.stringify(this.mlpWeightsHO));
-          localStorage.setItem('weights_\${this.snnHiddenSize}x\${this.snnHiddenSize}', JSON.stringify(this.snnWeightsIH));
-          localStorage.setItem('weights_\${this.outputSize}x\${this.snnHiddenSize}', JSON.stringify(this.snnWeightsHO));
+          self.postMessage({
+            type: 'saveWeights',
+            weights: {
+              mlpWeightsIH: this.mlpWeightsIH,
+              mlpWeightsHH: this.mlpWeightsHH,
+              mlpWeightsHO: this.mlpWeightsHO,
+              snnWeightsIH: this.snnWeightsIH,
+              snnWeightsHO: this.snnWeightsHO
+            }
+          });
         }
       }
 
-      // 베르니케 영역 (언어 이해)
       function wernickeArea(text) {
         const tokens = tokenizeText(refineText(text));
         return vectorizeText(tokens, vocabulary);
       }
 
-      // 브로카 영역 (언어 생성)
       function brocaArea(intent) {
         const responses = {
           greeting: ["안녕하세요!", "반갑습니다!", "안녕!"],
@@ -346,27 +327,25 @@
           science: ["과학 관련 질문이군요!", "흥미로운 주제입니다!"],
           unknown: ["죄송합니다, 이해하지 못했습니다."]
         };
-        const responseList = responses[intent] || responses['unknown'];
-        return responseList[Math.floor(Math.random() * responseList.length)];
+        return responses[intent] ? responses[intent][Math.floor(Math.random() * responses[intent].length)] : "죄송합니다, 이해하지 못했습니다.";
       }
 
-      // 각회 (시각 처리 - 텍스트 기반이므로 의도 분류로 대체)
       function angularGyrus(text) {
         const tokens = tokenizeText(refineText(text));
         return tokens.length > 0 ? 'valid' : 'invalid';
       }
 
-      // 전전두엽 (의사 결정 및 계획)
       function prefrontalCortex(text, intent) {
         if (angularGyrus(text) === 'invalid') return 'unknown';
         return intent === 'unknown' && conversationHistory.length > 0 ? 
           identifyIntent(conversationHistory[conversationHistory.length - 1]) : intent;
       }
 
-      // 데이터 로드 및 처리
       async function loadData(apiKey, learningUrl) {
-        let allTokens = [];
-        console.log('[INFO] 학습용.txt 파일을 요청합니다:', learningUrl);
+        if (!apiKey || !learningUrl) {
+          self.postMessage({ type: 'initError', message: 'API 키 또는 학습 URL이 필요합니다.' });
+          return;
+        }
         try {
           const response = await fetch(learningUrl, { 
             method: 'GET', 
@@ -375,28 +354,25 @@
           });
           if (!response.ok) throw new Error('데이터 로드 실패');
           const text = await response.text();
-          console.log('[SUCCESS] 학습용.txt 파일을 성공적으로 가져왔습니다:', learningUrl);
           const lines = text.split('\\n').filter(line => line.trim());
           const tokenizedTexts = lines.map(line => tokenizeText(refineText(line)));
-          allTokens = allTokens.concat(tokenizedTexts.flat());
+          vocabulary = [...new Set(tokenizedTexts.flat())];
+          mlpSnnModel = new MLPSNN(300, 128, 64, 5);
+          conversationHistory = [];
+          self.postMessage({ type: 'initComplete' });
         } catch (error) {
-          console.error('[ERROR] 학습용.txt 파일 가져오기 실패:', error.message);
+          self.postMessage({ type: 'initError', message: error.message });
         }
-        console.log('[INFO] 학습용.txt 파일 요청 및 처리 완료');
-        vocabulary = [...new Set(allTokens)];
-        mlpSnnModel = new MLPSNN(300, 128, 64, 5);
-        conversationHistory = JSON.parse(localStorage.getItem('conversationHistory')) || [];
       }
 
-      // 의도 식별
       function identifyIntent(text) {
+        if (!mlpSnnModel) return 'unknown';
         const vector = wernickeArea(text);
         return mlpSnnModel.predict(vector);
       }
 
-      // 자동 스파이킹 및 순환
       function autoSpike() {
-        if (conversationHistory.length > 0) {
+        if (conversationHistory.length > 0 && mlpSnnModel) {
           const lastText = conversationHistory[conversationHistory.length - 1];
           const intent = identifyIntent(lastText);
           intentGroups[intent].push(lastText);
@@ -404,16 +380,18 @@
         }
       }
 
-      setInterval(autoSpike, 5000); // 5초마다 자동 스파이킹
+      setInterval(autoSpike, 5000);
 
-      // Worker 메시지 처리
       self.onmessage = function(e) {
         const { type, text, apiKey, learningUrl } = e.data;
         if (type === 'init') {
           loadData(apiKey, learningUrl);
         } else if (type === 'process') {
+          if (!mlpSnnModel) {
+            self.postMessage({ type: 'processed', data: { intent: 'unknown', reply: '👾 챗봇: 초기화 중입니다. 잠시 기다려주세요.' } });
+            return;
+          }
           conversationHistory.push(text);
-          localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
           const intent = identifyIntent(text);
           const refinedIntent = prefrontalCortex(text, intent);
           const reply = brocaArea(refinedIntent);
@@ -421,17 +399,12 @@
           self.postMessage({ type: 'processed', data: { intent: refinedIntent, reply: \`👾 챗봇: \${reply}\` } });
         }
       };
-
-      // 자동 저장
-      setInterval(() => {
-        if (mlpSnnModel) mlpSnnModel.saveWeights();
-      }, 10000); // 10초마다 자동 저장
     `;
 
     const blob = new Blob([workerScript], { type: 'application/javascript' });
     const worker = new Worker(URL.createObjectURL(blob));
 
-    // 채팅창에 메시지 추가
+    // 메시지 표시 함수
     function appendBubble(text, sender) {
       const bubble = document.createElement('div');
       bubble.classList.add('bubble', sender);
@@ -440,22 +413,33 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // Worker로부터 메시지 수신
+    // Worker 메시지 처리
     worker.onmessage = function(e) {
-      const { type, data } = e.data;
+      const { type, data, message } = e.data;
       if (type === 'processed') {
-        const { reply } = data;
-        appendBubble(reply, 'bot');
+        appendBubble(data.reply, 'bot');
+      } else if (type === 'saveWeights') {
+        localStorage.setItem('modelWeights', JSON.stringify(data.weights));
+      } else if (type === 'initError') {
+        appendBubble(\`👾 챗봇: 초기화 오류 - \${message}\`, 'bot');
+      } else if (type === 'initComplete') {
+        isWorkerInitialized = true;
+        appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
       }
     };
 
-    // 메시지 처리
+    // 메시지 전송 처리
     function processMessage(text) {
+      if (!text) return;
       appendBubble(text, 'user');
+      if (!isWorkerInitialized) {
+        appendBubble('👾 챗봇: 초기화 중입니다. 잠시 기다려주세요.', 'bot');
+        return;
+      }
       worker.postMessage({ type: 'process', text, apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL });
     }
 
-    // 이벤트 설정
+    // 이벤트 리스너 설정
     sendBtn.addEventListener('click', () => {
       const text = inputEl.value.trim();
       if (text) {
@@ -471,11 +455,14 @@
       }
     });
 
-    // 초기화
+    // 초기화 함수
     (async function init() {
-      await fetchBackendData(); // API 키, LEARNING_TEXT_URL, PORT 가져오기
-      worker.postMessage({ type: 'init', apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL }); // Worker에 전달
-      appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
+      const success = await fetchBackendData();
+      if (success && MY_API_KEY && LEARNING_TEXT_URL) {
+        worker.postMessage({ type: 'init', apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL });
+      } else {
+        appendBubble('👾 챗봇: 초기화 실패 - 백엔드 설정을 확인해주세요.', 'bot');
+      }
     })();
   </script>
 </body>

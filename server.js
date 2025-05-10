@@ -15,15 +15,16 @@ app.use(cors({
   credentials: true // 인증 정보 포함 허용
 }));
 
-// `/api/key` 엔드포인트 (GET 요청)
-app.get('/api/key', (req, res) => {
+// `/api/data` 엔드포인트 (GET 요청)
+app.get('/api/data', (req, res) => {
   const apiKey = process.env.MY_API_KEY;
-  if (apiKey) {
-    console.log('[SUCCESS] API 키를 성공적으로 반환했습니다.');
-    res.status(200).json({ apiKey });
+  const learningUrl = process.env.LEARNING_TEXT_URL;
+  if (apiKey && learningUrl) {
+    console.log('[SUCCESS] API 키와 LEARNING_TEXT_URL을 성공적으로 반환했습니다.');
+    res.status(200).json({ apiKey, learningUrl });
   } else {
-    console.error('[ERROR] API 키를 찾을 수 없습니다.');
-    res.status(500).json({ error: 'API 키를 찾을 수 없습니다.' });
+    console.error('[ERROR] API 키 또는 LEARNING_TEXT_URL을 찾을 수 없습니다.');
+    res.status(500).json({ error: 'API 키 또는 LEARNING_TEXT_URL을 찾을 수 없습니다.' });
   }
 });
 

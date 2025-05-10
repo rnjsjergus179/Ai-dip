@@ -299,16 +299,15 @@
             }
           }
 
-          self.postMessage({
-            type: 'saveWeights',
-            weights: {
-              mlpWeightsIH: this.mlpWeightsIH,
-              mlpWeightsHH: this.mlpWeightsHH,
-              mlpWeightsHO: this.mlpWeightsHO,
-              snnWeightsIH: this.snnWeightsIH,
-              snnWeightsHO: this.snnWeightsHO
-            }
-          });
+          // weights 속성이 올바르게 전달되도록 보장
+          const weights = {
+            mlpWeightsIH: this.mlpWeightsIH,
+            mlpWeightsHH: this.mlpWeightsHH,
+            mlpWeightsHO: this.mlpWeightsHO,
+            snnWeightsIH: this.snnWeightsIH,
+            snnWeightsHO: this.snnWeightsHO
+          };
+          self.postMessage({ type: 'saveWeights', weights });
         }
       }
 
@@ -410,16 +409,18 @@
 
     // Worker 메시지 처리
     worker.onmessage = function(e) {
-      const { type, data, message } = e.data;
-      if (type === 'processed') {
+      const { type, data, message, weights } = e.data;
+      if (type === 'processed' && data) {
         appendBubble(data.reply, 'bot');
-      } else if (type === 'saveWeights') {
-        localStorage.setItem('modelWeights', JSON.stringify(data.weights));
-      } else if (type === 'initError') {
-        appendBubble("👾 챗봇: 초기화 오류 - " + message, 'bot');
+      } else if (type === 'saveWeights' && weights) {
+        localStorage.setItem('modelWeights', JSON.stringify(weights));
+      } else if (type === 'initError' && message) {
+        appendBubble(`👾 챗봇: 초기화 오류 - ${message}`, 'bot');
       } else if (type === 'initComplete') {
         isWorkerInitialized = true;
         appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
+      } else {
+        console.warn('[WARN] 예상치 못한 Worker 메시지:', e.data);
       }
     };
 

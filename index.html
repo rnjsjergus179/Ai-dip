@@ -103,13 +103,11 @@
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');
 
-    // Render에서 제공하는 백엔드 URL (실제 배포 URL로 교체 필요)
-    const BACKEND_URL = 'https://dibreoning-caesbos.onrender.com'; // 실제 Render 백엔드 도메인으로 변경
+    const BACKEND_URL = 'https://dibreoning-caesbos.onrender.com';
     let MY_API_KEY = '';
     let LEARNING_TEXT_URL = '';
     let isWorkerInitialized = false;
 
-    // 백엔드에서 API 키와 학습 URL 가져오기
     async function fetchBackendData() {
       console.log('[INFO] 백엔드 설정을 요청합니다...');
       try {
@@ -127,7 +125,6 @@
       }
     }
 
-    // Web Worker 스크립트
     const workerScript = `
       let vocabulary = [];
       let mlpSnnModel = null;
@@ -156,17 +153,25 @@
       }
 
       class MLPSNN {
-        constructor(inputSize, mlpHiddenSize, snnHiddenSize, outputSize) {
+        constructor(inputSize, mlpHiddenSize, snnHiddenSize, outputSize, weights = null) {
           this.inputSize = inputSize;
           this.mlpHiddenSize = mlpHiddenSize;
           this.snnHiddenSize = snnHiddenSize;
           this.outputSize = outputSize;
 
-          this.mlpWeightsIH = this.initializeWeights(mlpHiddenSize, inputSize);
-          this.mlpWeightsHH = this.initializeWeights(mlpHiddenSize, mlpHiddenSize);
-          this.mlpWeightsHO = this.initializeWeights(snnHiddenSize, mlpHiddenSize);
-          this.snnWeightsIH = this.initializeWeights(snnHiddenSize, snnHiddenSize);
-          this.snnWeightsHO = this.initializeWeights(outputSize, snnHiddenSize);
+          if (weights) {
+            this.mlpWeightsIH = weights.mlpWeightsIH;
+            this.mlpWeightsHH = weights.mlpWeightsHH;
+            this.mlpWeightsHO = weights.mlpWeightsHO;
+            this.snnWeightsIH = weights.snnWeightsIH;
+            this.snnWeightsHO = weights.snnWeightsHO;
+          } else {
+            this.mlpWeightsIH = this.initializeWeights(mlpHiddenSize, inputSize);
+            this.mlpWeightsHH = this.initializeWeights(mlpHiddenSize, mlpHiddenSize);
+            this.mlpWeightsHO = this.initializeWeights(snnHiddenSize, mlpHiddenSize);
+            this.snnWeightsIH = this.initializeWeights(snnHiddenSize, snnHiddenSize);
+            this.snnWeightsHO = this.initializeWeights(outputSize, snnHiddenSize);
+          }
 
           this.threshold = 1.0;
           this.leak = 0.9;
@@ -299,15 +304,16 @@
             }
           }
 
-          // weights 속성이 올바르게 전달되도록 보장
-          const weights = {
-            mlpWeightsIH: this.mlpWeightsIH,
-            mlpWeightsHH: this.mlpWeightsHH,
-            mlpWeightsHO: this.mlpWeightsHO,
-            snnWeightsIH: this.snnWeightsIH,
-            snnWeightsHO: this.snnWeightsHO
-          };
-          self.postMessage({ type: 'saveWeights', weights });
+          self.postMessage({
+            type: 'saveWeights',
+            weights: {
+              mlpWeightsIH: this.mlpWeightsIH,
+              mlpWeightsHH: this.mlpWeightsHH,
+              mlpWeightsHO: this.mlpWeightsHO,
+              snnWeightsIH: this.snnWeightsIH,
+              snnWeightsHO: this.snnWeightsHO
+            }
+          });
         }
       }
 
@@ -338,7 +344,7 @@
           identifyIntent(conversationHistory[conversationHistory.length - 1]) : intent;
       }
 
-      async function loadData(apiKey, learningUrl) {
+      async function loadData(apiKey, learningUrl, savedWeights) {
         if (!apiKey || !learningUrl) {
           self.postMessage({ type: 'initError', message: 'API 키 또는 학습 URL이 필요합니다.' });
           return;
@@ -351,7 +357,7 @@
           const lines = text.split('\\n').filter(line => line.trim());
           const tokenizedTexts = lines.map(line => tokenizeText(refineText(line)));
           vocabulary = [...new Set(tokenizedTexts.flat())];
-          mlpSnnModel = new MLPSNN(300, 128, 64, 5);
+          mlpSnnModel = new MLPSNN(300, 128, 64, 5, savedWeights);
           conversationHistory = [];
           self.postMessage({ type: 'initComplete' });
         } catch (error) {
@@ -377,9 +383,9 @@
       setInterval(autoSpike, 5000);
 
       self.onmessage = function(e) {
-        const { type, text, apiKey, learningUrl } = e.data;
+        const { type, text, apiKey, learningUrl, savedWeights } = e.data;
         if (type === 'init') {
-          loadData(apiKey, learningUrl);
+          loadData(apiKey, learningUrl, savedWeights);
         } else if (type === 'process') {
           if (!mlpSnnModel) {
             self.postMessage({ type: 'processed', data: { intent: 'unknown', reply: '👾 챗봇: 초기화 중입니다. 잠시 기다려주세요.' } });
@@ -398,7 +404,6 @@
     const blob = new Blob([workerScript], { type: 'application/javascript' });
     const worker = new Worker(URL.createObjectURL(blob));
 
-    // 메시지 표시 함수
     function appendBubble(text, sender) {
       const bubble = document.createElement('div');
       bubble.classList.add('bubble', sender);
@@ -407,7 +412,6 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // Worker 메시지 처리
     worker.onmessage = function(e) {
       const { type, data, message, weights } = e.data;
       if (type === 'processed' && data) {
@@ -424,7 +428,6 @@
       }
     };
 
-    // 메시지 전송 처리
     function processMessage(text) {
       if (!text) return;
       appendBubble(text, 'user');
@@ -435,7 +438,6 @@
       worker.postMessage({ type: 'process', text, apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL });
     }
 
-    // 이벤트 리스너 설정
     sendBtn.addEventListener('click', () => {
       const text = inputEl.value.trim();
       if (text) {
@@ -451,11 +453,11 @@
       }
     });
 
-    // 초기화 함수
     (async function init() {
       const success = await fetchBackendData();
       if (success && MY_API_KEY && LEARNING_TEXT_URL) {
-        worker.postMessage({ type: 'init', apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL });
+        const savedWeights = JSON.parse(localStorage.getItem('modelWeights') || 'null');
+        worker.postMessage({ type: 'init', apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL, savedWeights });
       } else {
         appendBubble('👾 챗봇: 초기화 실패 - 백엔드 설정을 확인해주세요.', 'bot');
       }

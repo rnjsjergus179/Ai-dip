@@ -113,7 +113,7 @@
     async function fetchBackendData() {
       console.log('[INFO] 백엔드 설정을 요청합니다...');
       try {
-        const response = await fetch(`${BACKEND_URL}/api/config`, { method: 'GET', mode: 'cors' });
+        const response = await fetch(`${BACKEND_URL}/api/config`);
         if (!response.ok) throw new Error(`백엔드 응답 실패: ${response.status} ${response.statusText}`);
         const data = await response.json();
         MY_API_KEY = data.apiKey;
@@ -174,8 +174,6 @@
         }
 
         initializeWeights(rows, cols) {
-          const savedWeights = localStorage.getItem("weights_" + rows + "x" + cols);
-          if (savedWeights) return JSON.parse(savedWeights);
           return new Array(rows).fill(0).map(() => 
             new Array(cols).fill(0).map(() => Math.random() - 0.5));
         }
@@ -347,11 +345,8 @@
           return;
         }
         try {
-          const response = await fetch(learningUrl, { 
-            method: 'GET', 
-            mode: 'cors',
-            headers: { 'Authorization': "Bearer " + apiKey } 
-          });
+          const proxyUrl = \`${BACKEND_URL}/api/learning-text?url=\${encodeURIComponent(learningUrl)}\`;
+          const response = await fetch(proxyUrl);
           if (!response.ok) throw new Error('데이터 로드 실패');
           const text = await response.text();
           const lines = text.split('\\n').filter(line => line.trim());

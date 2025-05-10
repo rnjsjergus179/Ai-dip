@@ -114,6 +114,25 @@
     let processedData = [];  // 훈련 데이터 저장
     let vocabulary = [];  // 단어 사전
 
+    // NLU 엔진 정의
+    const nluEngine = {
+      intents: {
+        greeting: {
+          keywords: ["안녕", "하이", "반가워", "hello", "hi"],
+          responses: ["안녕하세요!", "반갑습니다!", "안녕!"]
+        },
+        question: {
+          keywords: ["무엇", "어떻게", "왜", "누구", "언제", "어디", "what", "how", "why", "who", "when", "where"],
+          responses: ["질문에 대한 답변을 준비 중입니다.", "질문을 이해했습니다. 곧 답변드리겠습니다.", "질문이 도착했습니다!"]
+        },
+        request: {
+          keywords: ["부탁", "요청", "해줘", "해주세요", "please", "can you", "could you"],
+          responses: ["요청을 처리 중입니다.", "부탁하신 내용을 확인했습니다.", "곧 도와드리겠습니다!"]
+        }
+      },
+      defaultResponse: "죄송합니다, 이해하지 못했습니다."
+    };
+
     // 채팅창에 메시지 추가
     function appendBubble(text, sender) {
       const bubble = document.createElement('div');
@@ -227,6 +246,44 @@
       }
     }
 
+    // 로컬 스토리지에서 모델 및 데이터 불러오기
+    function loadModelAndData() {
+      const savedWeights = localStorage.getItem('mlpWeights');
+      const savedData = localStorage.getItem('processedData');
+      const savedVocab = localStorage.getItem('vocabulary');
+
+      if (savedWeights) {
+        mlpWeights = JSON.parse(savedWeights);
+        mlpWeights.inputToHidden = mlpWeights.inputToHidden.map(row => new Float32Array(row));
+        mlpWeights.hiddenToOutput = mlpWeights.hiddenToOutput.map(row => new Float32Array(row));
+      }
+
+      if (savedData) {
+        processedData = JSON.parse(savedData);
+        processedData = processedData.map(item => ({
+          tokens: item.tokens,
+          vector: new Float32Array(item.vector)
+        }));
+      }
+
+      if (savedVocab) {
+        vocabulary = JSON.parse(savedVocab);
+      }
+    }
+
+    // 로컬 스토리지에 모델 및 데이터 저장
+    function saveModelAndData() {
+      localStorage.setItem('mlpWeights', JSON.stringify({
+        inputToHidden: mlpWeights.inputToHidden.map(row => Array.from(row)),
+        hiddenToOutput: mlpWeights.hiddenToOutput.map(row => Array.from(row))
+      }));
+      localStorage.setItem('processedData', JSON.stringify(processedData.map(item => ({
+        tokens: item.tokens,
+        vector: Array.from(item.vector)
+      }))));
+      localStorage.setItem('vocabulary', JSON.stringify(vocabulary));
+    }
+
     // GitHub에서 학습 데이터 가져오기 및 처리
     async function fetchAndProcessData() {
       try {
@@ -256,10 +313,33 @@
 
         processedData = vectorizedData; // 초기 훈련 데이터 저장
         trainMLP(processedData);
+        saveModelAndData(); // 초기 데이터 저장
       } catch (error) {
         console.error('[ERROR] 학습용.txt 파일 불러오기 실패:', error);
         appendBubble('챗봇 초기화에 실패했습니다.', 'bot');
       }
+    }
+
+    // 의도 식별 함수
+    function identifyIntent(text) {
+      const refinedText = refineText(text);
+      const tokens = tokenizeText(refinedText);
+      
+      for (const [intent, data] of Object.entries(nluEngine.intents)) {
+        if (tokens.some(token => data.keywords.includes(token))) {
+          return intent;
+        }
+      }
+      return null;
+    }
+
+    // 응답 생성 함수
+    function generateResponse(intent) {
+      if (intent && nluEngine.intents[intent]) {
+        const responses = nluEngine.intents[intent].responses;
+        return responses[Math.floor(Math.random() * responses.length)];
+      }
+      return nluEngine.defaultResponse;
     }
 
     // 사용자 메시지 처리 및 MLP에 자동 저장
@@ -275,13 +355,15 @@
       const newData = { tokens, vector: inputVector };
       processedData.push(newData);
       trainMLP([newData], 1); // 1 에포크로 재훈련
+      saveModelAndData(); // 모델 및 데이터 저장
 
       // 예측 수행
       const prediction = predictMLP(inputVector);
       console.log('MLP 예측 결과:', prediction);
 
-      // 챗봇 응답
-      const reply = `👾 에코봇: "${text}"라고 하셨군요!`;
+      // NLU 엔진을 사용하여 의도 식별 및 응답 생성
+      const intent = identifyIntent(text);
+      const reply = `👾 에코봇: ${generateResponse(intent)}`;
       appendBubble(reply, 'bot');
     }
 
@@ -306,7 +388,10 @@
 
     // 초기화 실행
     (async function init() {
-      await fetchAndProcessData();
+      loadModelAndData(); // 로컬 스토리지에서 모델 및 데이터 불러오기
+      if (!mlpWeights.inputToHidden) {
+        await fetchAndProcessData(); // 초기 데이터가 없으면 GitHub에서 가져오기
+      }
       appendBubble('안녕하세요! 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
     })();
   </script>

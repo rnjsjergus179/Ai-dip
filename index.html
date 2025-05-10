@@ -104,7 +104,7 @@
     const sendBtn = document.getElementById('send');
 
     // Render에서 제공하는 백엔드 URL (실제 배포 URL로 교체 필요)
-    const BACKEND_URL = 'https://dibreoning-caesbos.onrender.com'; // 실제 Render 백엔드 도메인으로 변경
+    const BACKEND_URL = 'https://your-backend.onrender.com'; // 실제 Render 백엔드 도메인으로 변경
     let MY_API_KEY = '';
     let LEARNING_TEXT_URL = '';
     let isWorkerInitialized = false;
@@ -135,11 +135,11 @@
       let conversationHistory = [];
 
       function refineText(text) {
-        return text.replace(/[^가-힣a-zA-Z0-9\\s]/g, '').toLowerCase().trim();
+        return text.replace(/[^가-힣a-zA-Z0-9\\\\s]/g, '').toLowerCase().trim();
       }
 
       function tokenizeText(text) {
-        return text.split(/\\s+/).filter(word => word.length > 0);
+        return text.split(/\\\\s+/).filter(word => word.length > 0);
       }
 
       function vectorizeText(tokens, vocab) {
@@ -174,7 +174,7 @@
         }
 
         initializeWeights(rows, cols) {
-          const savedWeights = localStorage.getItem(\`weights_\${rows}x\${cols}\`);
+          const savedWeights = localStorage.getItem("weights_" + rows + "x" + cols);
           if (savedWeights) return JSON.parse(savedWeights);
           return new Array(rows).fill(0).map(() => 
             new Array(cols).fill(0).map(() => Math.random() - 0.5));
@@ -350,7 +350,7 @@
           const response = await fetch(learningUrl, { 
             method: 'GET', 
             mode: 'cors',
-            headers: { 'Authorization': \`Bearer \${apiKey}\` } 
+            headers: { 'Authorization': "Bearer " + apiKey } 
           });
           if (!response.ok) throw new Error('데이터 로드 실패');
           const text = await response.text();
@@ -396,7 +396,7 @@
           const refinedIntent = prefrontalCortex(text, intent);
           const reply = brocaArea(refinedIntent);
           mlpSnnModel.train(wernickeArea(text), refinedIntent);
-          self.postMessage({ type: 'processed', data: { intent: refinedIntent, reply: \`👾 챗봇: \${reply}\` } });
+          self.postMessage({ type: 'processed', data: { intent: refinedIntent, reply: "👾 챗봇: " + reply } });
         }
       };
     `;
@@ -421,7 +421,7 @@
       } else if (type === 'saveWeights') {
         localStorage.setItem('modelWeights', JSON.stringify(data.weights));
       } else if (type === 'initError') {
-        appendBubble(\`👾 챗봇: 초기화 오류 - \${message}\`, 'bot');
+        appendBubble("👾 챗봇: 초기화 오류 - " + message, 'bot');
       } else if (type === 'initComplete') {
         isWorkerInitialized = true;
         appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');

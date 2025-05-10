@@ -3,7 +3,7 @@ const fetch = require('node-fetch');
 // 학습 데이터 URL (예시)
 const LEARNING_TEXT_URL = 'https://raw.githubusercontent.com/rnjsjergus179/-/main/학습용.txt';
 
-// 의도별 키워드 정의 (간단한 예시)
+// 의도별 키워드 정의
 const INTENT_KEYWORDS = {
   greeting: ['안녕', '하이', '반가워'],
   question: ['무엇', '어떻게', '왜'],
@@ -35,13 +35,17 @@ function tokenizeText(text) {
 async function buildVocabulary() {
   try {
     const response = await fetch(LEARNING_TEXT_URL);
-    if (!response.ok) throw new Error('데이터를 가져오지 못했습니다.');
+    if (!response.ok) {
+      throw new Error('데이터를 가져오지 못했습니다.');
+    }
     const text = await response.text();
+    console.log('[SUCCESS] 학습용.txt 파일을 성공적으로 가져왔습니다.');
     const lines = text.split('\n').filter(line => line.trim());
     const allTokens = lines.map(line => tokenizeText(refineText(line))).flat();
     return [...new Set(allTokens)]; // 고유 단어 집합 반환
   } catch (error) {
-    throw new Error('어휘 생성 중 오류 발생: ' + error.message);
+    console.error('[ERROR] 학습용.txt 파일 가져오기 실패:', error.message);
+    throw error;
   }
 }
 
@@ -75,10 +79,14 @@ function generateResponse(intent) {
 
 /** 클라이언트 요청 처리 함수 */
 async function processClientRequest(text) {
-  const vocab = await buildVocabulary(); // 어휘 생성
-  const intent = identifyIntent(text, vocab); // 의도 식별
-  const response = generateResponse(intent); // 응답 생성
-  return { intent, response }; // 결과 반환
+  try {
+    const vocab = await buildVocabulary(); // 어휘 생성
+    const intent = identifyIntent(text, vocab); // 의도 식별
+    const response = generateResponse(intent); // 응답 생성
+    return { intent, response }; // 결과 반환
+  } catch (error) {
+    throw new Error('요청 처리 중 오류 발생: ' + error.message);
+  }
 }
 
 // 모듈 내보내기

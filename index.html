@@ -165,41 +165,32 @@
 
       class MLPSNN {
         constructor(inputSize, mlpHiddenSize, snnHiddenSize, outputSize, weights = null) {
-          console.log('[INFO] MLPSNN 생성자 시작');
           this.inputSize = inputSize;
           this.mlpHiddenSize = mlpHiddenSize;
           this.snnHiddenSize = snnHiddenSize;
           this.outputSize = outputSize;
 
-          try {
-            if (weights) {
-              this.mlpWeightsIH = weights.mlpWeightsIH;
-              this.mlpWeightsHH = weights.mlpWeightsHH;
-              this.mlpWeightsHO = weights.mlpWeightsHO;
-              this.snnWeightsIH = weights.snnWeightsIH;
-              this.snnWeightsHO = weights.snnWeightsHO;
-            } else {
-              this.mlpWeightsIH = this.initializeWeights(mlpHiddenSize, inputSize);
-              this.mlpWeightsHH = this.initializeWeights(mlpHiddenSize, mlpHiddenSize);
-              this.mlpWeightsHO = this.initializeWeights(snnHiddenSize, mlpHiddenSize);
-              this.snnWeightsIH = this.initializeWeights(snnHiddenSize, snnHiddenSize);
-              this.snnWeightsHO = this.initializeWeights(outputSize, snnHiddenSize);
-            }
-            this.threshold = 1.0;
-            this.leak = 0.9;
-            this.membrane = new Array(snnHiddenSize).fill(0);
-            console.log('[SUCCESS] MLPSNN 생성자 성공');
-          } catch (error) {
-            console.error('[ERROR] MLPSNN 생성자 실패:', error.message);
+          if (weights) {
+            this.mlpWeightsIH = weights.mlpWeightsIH;
+            this.mlpWeightsHH = weights.mlpWeightsHH;
+            this.mlpWeightsHO = weights.mlpWeightsHO;
+            this.snnWeightsIH = weights.snnWeightsIH;
+            this.snnWeightsHO = weights.snnWeightsHO;
+          } else {
+            this.mlpWeightsIH = this.initializeWeights(mlpHiddenSize, inputSize);
+            this.mlpWeightsHH = this.initializeWeights(mlpHiddenSize, mlpHiddenSize);
+            this.mlpWeightsHO = this.initializeWeights(snnHiddenSize, mlpHiddenSize);
+            this.snnWeightsIH = this.initializeWeights(snnHiddenSize, snnHiddenSize);
+            this.snnWeightsHO = this.initializeWeights(outputSize, snnHiddenSize);
           }
+          this.threshold = 1.0;
+          this.leak = 0.9;
+          this.membrane = new Array(snnHiddenSize).fill(0);
         }
 
         initializeWeights(rows, cols) {
-          console.log('[INFO] initializeWeights 시작');
-          const result = new Array(rows).fill(0).map(() => 
+          return new Array(rows).fill(0).map(() => 
             new Array(cols).fill(0).map(() => Math.random() - 0.5));
-          console.log('[SUCCESS] initializeWeights 성공');
-          return result;
         }
 
         relu(x) {
@@ -207,164 +198,132 @@
         }
 
         mlpForward(input) {
-          console.log('[INFO] mlpForward 시작');
-          try {
-            const hidden1 = new Array(this.mlpHiddenSize).fill(0).map((_, i) => {
-              let sum = 0;
-              for (let j = 0; j < this.inputSize; j++) {
-                sum += this.mlpWeightsIH[i][j] * input[j];
-              }
-              return this.relu(sum);
-            });
-            console.log('[INFO] hidden1 생성 완료');
+          const hidden1 = new Array(this.mlpHiddenSize).fill(0).map((_, i) => {
+            let sum = 0;
+            for (let j = 0; j < this.inputSize; j++) {
+              sum += this.mlpWeightsIH[i][j] * input[j];
+            }
+            return this.relu(sum);
+          });
 
-            const hidden2 = new Array(this.mlpHiddenSize).fill(0).map((_, i) => {
-              let sum = 0;
-              for (let j = 0; j < this.mlpHiddenSize; j++) {
-                sum += this.mlpWeightsHH[i][j] * hidden1[j];
-              }
-              return this.relu(sum);
-            });
-            console.log('[INFO] hidden2 생성 완료');
+          const hidden2 = new Array(this.mlpHiddenSize).fill(0).map((_, i) => {
+            let sum = 0;
+            for (let j = 0; j < this.mlpHiddenSize; j++) {
+              sum += this.mlpWeightsHH[i][j] * hidden1[j];
+            }
+            return this.relu(sum);
+          });
 
-            const mlpOutput = new Array(this.snnHiddenSize).fill(0).map((_, i) => {
-              let sum = 0;
-              for (let j = 0; j < this.mlpHiddenSize; j++) {
-                sum += this.mlpWeightsHO[i][j] * hidden2[j];
-              }
-              return sum;
-            });
-            console.log('[INFO] mlpOutput 생성 완료');
-            console.log('[SUCCESS] mlpForward 성공');
-            return { hidden1, hidden2, mlpOutput };
-          } catch (error) {
-            console.error('[ERROR] mlpForward 실패:', error.message);
-            throw error;
-          }
+          const mlpOutput = new Array(this.snnHiddenSize).fill(0).map((_, i) => {
+            let sum = 0;
+            for (let j = 0; j < this.mlpHiddenSize; j++) {
+              sum += this.mlpWeightsHO[i][j] * hidden2[j];
+            }
+            return sum;
+          });
+
+          return { hidden1, hidden2, mlpOutput };
         }
 
         snnPredict(mlpOutput) {
-          console.log('[INFO] snnPredict 시작');
-          try {
-            const spikesInput = vectorToSpikes(mlpOutput);
-            const hiddenSpikes = new Array(this.snnHiddenSize).fill(0);
-            const outputSpikes = new Array(this.outputSize).fill(0);
+          const spikesInput = vectorToSpikes(mlpOutput);
+          const hiddenSpikes = new Array(this.snnHiddenSize).fill(0);
+          const outputSpikes = new Array(this.outputSize).fill(0);
 
-            for (let t = 0; t < 10; t++) {
-              for (let i = 0; i < this.snnHiddenSize; i++) {
-                let sum = 0;
-                for (let j = 0; j < this.snnHiddenSize; j++) {
-                  sum += this.snnWeightsIH[i][j] * spikesInput[j];
-                }
-                this.membrane[i] = this.membrane[i] * this.leak + sum;
-                if (this.membrane[i] > this.threshold) {
-                  hiddenSpikes[i] = 1;
-                  this.membrane[i] = 0;
-                } else {
-                  hiddenSpikes[i] = 0;
-                }
+          for (let t = 0; t < 10; t++) {
+            for (let i = 0; i < this.snnHiddenSize; i++) {
+              let sum = 0;
+              for (let j = 0; j < this.snnHiddenSize; j++) {
+                sum += this.snnWeightsIH[i][j] * spikesInput[j];
               }
-
-              for (let i = 0; i < this.outputSize; i++) {
-                let sum = 0;
-                for (let j = 0; j < this.snnHiddenSize; j++) {
-                  sum += this.snnWeightsHO[i][j] * hiddenSpikes[j];
-                }
-                outputSpikes[i] += sum;
+              this.membrane[i] = this.membrane[i] * this.leak + sum;
+              if (this.membrane[i] > this.threshold) {
+                hiddenSpikes[i] = 1;
+                this.membrane[i] = 0;
+              } else {
+                hiddenSpikes[i] = 0;
               }
             }
 
-            const maxIndex = outputSpikes.indexOf(Math.max(...outputSpikes));
-            const result = ['greeting', 'question', 'request', 'science', 'unknown'][maxIndex];
-            console.log('[SUCCESS] snnPredict 성공, 결과:', result);
-            return result;
-          } catch (error) {
-            console.error('[ERROR] snnPredict 실패:', error.message);
-            throw error;
+            for (let i = 0; i < this.outputSize; i++) {
+              let sum = 0;
+              for (let j = 0; j < this.snnHiddenSize; j++) {
+                sum += this.snnWeightsHO[i][j] * hiddenSpikes[j];
+              }
+              outputSpikes[i] += sum;
+            }
           }
+
+          const maxIndex = outputSpikes.indexOf(Math.max(...outputSpikes));
+          return ['greeting', 'question', 'request', 'science', 'unknown'][maxIndex];
         }
 
         predict(input) {
-          console.log('[INFO] predict 시작');
-          try {
-            const { mlpOutput } = this.mlpForward(input);
-            const result = this.snnPredict(mlpOutput);
-            console.log('[SUCCESS] predict 성공, 결과:', result);
-            return result;
-          } catch (error) {
-            console.error('[ERROR] predict 실패:', error.message);
-            throw error;
-          }
+          const { mlpOutput } = this.mlpForward(input);
+          return this.snnPredict(mlpOutput);
         }
 
         train(input, target, learningRate = 0.01) {
-          console.log('[INFO] train 시작');
-          try {
-            const { hidden1, hidden2, mlpOutput } = this.mlpForward(input);
-            const outputSpikes = new Array(this.outputSize).fill(0);
-            const targetVector = new Array(this.outputSize).fill(0);
-            const intentIndex = ['greeting', 'question', 'request', 'science', 'unknown'].indexOf(target);
-            targetVector[intentIndex] = 1;
+          const { hidden1, hidden2, mlpOutput } = this.mlpForward(input);
+          const outputSpikes = new Array(this.outputSize).fill(0);
+          const targetVector = new Array(this.outputSize).fill(0);
+          const intentIndex = ['greeting', 'question', 'request', 'science', 'unknown'].indexOf(target);
+          targetVector[intentIndex] = 1;
 
-            const spikesInput = vectorToSpikes(mlpOutput);
-            for (let t = 0; t < 10; t++) {
-              const hiddenSpikes = new Array(this.snnHiddenSize).fill(0);
-              for (let i = 0; i < this.snnHiddenSize; i++) {
-                let sum = 0;
-                for (let j = 0; j < this.snnHiddenSize; j++) {
-                  sum += this.snnWeightsIH[i][j] * spikesInput[j];
-                }
-                this.membrane[i] = this.membrane[i] * this.leak + sum;
-                if (this.membrane[i] > this.threshold) {
-                  hiddenSpikes[i] = 1;
-                  this.membrane[i] = 0;
-                }
-              }
-              for (let i = 0; i < this.outputSize; i++) {
-                let sum = 0;
-                for (let j = 0; j < this.snnHiddenSize; j++) {
-                  sum += this.snnWeightsHO[i][j] * hiddenSpikes[j];
-                }
-                outputSpikes[i] += sum;
-              }
-            }
-
-            const outputError = outputSpikes.map((o, i) => targetVector[i] - o);
-            for (let i = 0; i < this.outputSize; i++) {
-              for (let j = 0; j < this.snnHiddenSize; j++) {
-                this.snnWeightsHO[i][j] += learningRate * outputError[i] * spikesInput[j];
-              }
-            }
-
-            const mlpError = new Array(this.snnHiddenSize).fill(0).map((_, i) => {
-              let sum = 0;
-              for (let j = 0; j < this.outputSize; j++) {
-                sum += this.snnWeightsHO[j][i] * outputError[j];
-              }
-              return sum;
-            });
-
+          const spikesInput = vectorToSpikes(mlpOutput);
+          for (let t = 0; t < 10; t++) {
+            const hiddenSpikes = new Array(this.snnHiddenSize).fill(0);
             for (let i = 0; i < this.snnHiddenSize; i++) {
-              for (let j = 0; j < this.mlpHiddenSize; j++) {
-                this.mlpWeightsHO[i][j] += learningRate * mlpError[i] * hidden2[j];
+              let sum = 0;
+              for (let j = 0; j < this.snnHiddenSize; j++) {
+                sum += this.snnWeightsIH[i][j] * spikesInput[j];
+              }
+              this.membrane[i] = this.membrane[i] * this.leak + sum;
+              if (this.membrane[i] > this.threshold) {
+                hiddenSpikes[i] = 1;
+                this.membrane[i] = 0;
               }
             }
-
-            self.postMessage({
-              type: 'saveWeights',
-              weights: {
-                mlpWeightsIH: this.mlpWeightsIH,
-                mlpWeightsHH: this.mlpWeightsHH,
-                mlpWeightsHO: this.mlpWeightsHO,
-                snnWeightsIH: this.snnWeightsIH,
-                snnWeightsHO: this.snnWeightsHO
+            for (let i = 0; i < this.outputSize; i++) {
+              let sum = 0;
+              for (let j = 0; j < this.snnHiddenSize; j++) {
+                sum += this.snnWeightsHO[i][j] * hiddenSpikes[j];
               }
-            });
-            console.log('[SUCCESS] train 성공');
-          } catch (error) {
-            console.error('[ERROR] train 실패:', error.message);
-            throw error;
+              outputSpikes[i] += sum;
+            }
           }
+
+          const outputError = outputSpikes.map((o, i) => targetVector[i] - o);
+          for (let i = 0; i < this.outputSize; i++) {
+            for (let j = 0; j < this.snnHiddenSize; j++) {
+              this.snnWeightsHO[i][j] += learningRate * outputError[i] * spikesInput[j];
+            }
+          }
+
+          const mlpError = new Array(this.snnHiddenSize).fill(0).map((_, i) => {
+            let sum = 0;
+            for (let j = 0; j < this.outputSize; j++) {
+              sum += this.snnWeightsHO[j][i] * outputError[j];
+            }
+            return sum;
+          });
+
+          for (let i = 0; i < this.snnHiddenSize; i++) {
+            for (let j = 0; j < this.mlpHiddenSize; j++) {
+              this.mlpWeightsHO[i][j] += learningRate * mlpError[i] * hidden2[j];
+            }
+          }
+
+          self.postMessage({
+            type: 'saveWeights',
+            weights: {
+              mlpWeightsIH: this.mlpWeightsIH,
+              mlpWeightsHH: this.mlpWeightsHH,
+              mlpWeightsHO: this.mlpWeightsHO,
+              snnWeightsIH: this.snnWeightsIH,
+              snnWeightsHO: this.snnWeightsHO
+            }
+          });
         }
       }
 

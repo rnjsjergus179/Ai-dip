@@ -105,18 +105,20 @@
 
     let MY_API_KEY = '';
     let LEARNING_TEXT_URL = '';
+    let BACKEND_PORT = 3000; // 기본값
 
-    // 백엔드에서 API 키와 LEARNING_TEXT_URL 가져오기
+    // 백엔드에서 API 키, LEARNING_TEXT_URL, PORT 가져오기
     async function fetchBackendData() {
       try {
-        const response = await fetch('http://localhost:3000/api/data');
-        if (!response.ok) throw new Error('백엔드 데이터를 가져오지 못했습니다.');
+        const response = await fetch(`http://localhost:${BACKEND_PORT}/api/config`);
+        if (!response.ok) throw new Error('백엔드 설정을 가져오지 못했습니다.');
         const data = await response.json();
         MY_API_KEY = data.apiKey;
         LEARNING_TEXT_URL = data.learningUrl;
-        console.log('[SUCCESS] 백엔드 데이터를 성공적으로 가져왔습니다.');
+        BACKEND_PORT = data.port || 3000; // .env에서 가져온 PORT 사용
+        console.log('[SUCCESS] 백엔드 설정을 성공적으로 가져왔습니다.');
       } catch (error) {
-        console.error('[ERROR] 백엔드 데이터 가져오기 실패:', error.message);
+        console.error('[ERROR] 백엔드 설정 가져오기 실패:', error.message);
       }
     }
 
@@ -467,7 +469,7 @@
 
     // 초기화
     (async function init() {
-      await fetchBackendData(); // API 키와 LEARNING_TEXT_URL 가져오기
+      await fetchBackendData(); // API 키, LEARNING_TEXT_URL, PORT 가져오기
       worker.postMessage({ type: 'init', apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL }); // Worker에 전달
       appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
     })();

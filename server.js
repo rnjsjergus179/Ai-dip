@@ -40,22 +40,22 @@ app.get('/api/config', (req, res) => {
   }
 });
 
-// `/api/learning-text` 엔드포인트 (GET 요청) - 학습용.txt 파일 프록시
+// `/api/learning-text` 엔드포인트 (GET 요청) - 쿼리 파라미터로 txt URL을 받아 파일 가져오기
 app.get('/api/learning-text', async (req, res) => {
-  const learningUrl = process.env.LEARNING_TEXT_URL || 'https://raw.githubusercontent.com/rnjsjergus179/Ai-dip/main/학습용.txt';
-  if (!learningUrl) {
-    console.error('[ERROR] LEARNING_TEXT_URL이 정의되지 않았습니다.');
-    return res.status(500).json({ error: 'LEARNING_TEXT_URL이 정의되지 않았습니다.' });
+  const txtUrl = req.query.url; // 쿼리 파라미터로 전달된 txt URL
+  if (!txtUrl) {
+    console.error('[ERROR] txt URL이 제공되지 않았습니다.');
+    return res.status(400).json({ error: 'txt URL이 필요합니다.' });
   }
   try {
-    const response = await fetch(learningUrl);
-    if (!response.ok) throw new Error('학습용.txt 파일을 가져오지 못했습니다.');
+    const response = await fetch(txtUrl);
+    if (!response.ok) throw new Error('파일을 가져오지 못했습니다.');
     const text = await response.text();
-    console.log('[SUCCESS] 학습용.txt 파일을 성공적으로 가져왔습니다.');
+    console.log('[SUCCESS] 파일을 성공적으로 가져왔습니다:', txtUrl);
     res.status(200).send(text);
   } catch (error) {
-    console.error('[ERROR] 학습용.txt 파일 가져오기 실패:', error.message);
-    res.status(500).json({ error: '학습용.txt 파일을 가져오지 못했습니다.' });
+    console.error('[ERROR] 파일 가져오기 실패:', error.message);
+    res.status(500).json({ error: '파일을 가져오지 못했습니다.' });
   }
 });
 

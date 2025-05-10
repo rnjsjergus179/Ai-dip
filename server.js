@@ -8,9 +8,9 @@ const PORT = process.env.PORT || 3000; // 환경 변수 PORT 사용, 기본값 3
 // JSON body 파싱을 위한 미들웨어
 app.use(express.json());
 
-// CORS 설정 - 모든 출처 허용
+// CORS 설정 - .env에서 ALLOWED_ORIGIN 사용
 app.use(cors({
-  origin: '*', // 모든 출처 허용
+  origin: process.env.ALLOWED_ORIGIN || '*', // .env의 ALLOWED_ORIGIN, 없으면 모든 출처 허용
   methods: ['GET', 'POST'], // GET, POST 메서드 허용
   credentials: true // 인증 정보 포함 허용
 }));

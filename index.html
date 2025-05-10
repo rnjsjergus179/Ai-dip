@@ -107,12 +107,20 @@
     const LEARNING_TEXT_URL = 'https://raw.githubusercontent.com/rnjsjergus179/-/main/학습용.txt';
 
     // MLP 모델 파라미터 및 데이터
-    let mlpWeights = {
-      inputToHidden: null,  // 입력층 -> 은닉층 가중치
-      hiddenToOutput: null  // 은닉층 -> 출력층 가중치
+    let mlpWeights = { inputToHidden: null, hiddenToOutput: null };
+    let processedData = [];
+    let vocabulary = [];
+
+    // Transformer Decoder 파라미터
+    const transformerConfig = {
+      dModel: 64,    // 임베딩 차원
+      nHeads: 4,     // Multi-Head Attention의 헤드 수
+      dFF: 128,      // FFN의 중간 차원
+      nLayers: 2,    // Decoder 블록 수
+      vocabSize: 0,  // 초기화 시 설정
+      maxLen: 50     // 최대 시퀀스 길이
     };
-    let processedData = [];  // 훈련 데이터 저장
-    let vocabulary = [];  // 단어 사전
+    let transformerWeights = null;
 
     // NLU 엔진 정의
     const nluEngine = {
@@ -142,19 +150,19 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // 텍스트 정제화 (특수문자 제거 및 소문자 변환)
+    // 텍스트 정제화
     function refineText(text) {
       return text.replace(/[^가-힣a-zA-Z0-9\s]/g, '').toLowerCase().trim();
     }
 
-    // 일반 단어 토큰화 (공백 기준 분리)
+    // 토큰화
     function tokenizeText(text) {
       return text.split(/\s+/).filter(word => word.length > 0);
     }
 
-    // 벡터화 (Bag-of-Words 방식, 300차원)
+    // 벡터화 (Bag-of-Words, MLP용)
     function vectorizeText(tokens, vocabulary) {
-      const vector = new Float32Array(300); // 300차원 벡터
+      const vector = new Float32Array(300);
       tokens.forEach(token => {
         const index = vocabulary.indexOf(token) % 300;
         if (index >= 0) vector[index] += 1;
@@ -162,13 +170,13 @@
       return vector;
     }
 
-    // 행렬 초기화 (랜덤 값으로)
+    // 행렬 초기화
     function initializeWeights(rows, cols) {
       const matrix = [];
       for (let i = 0; i < rows; i++) {
         const row = new Float32Array(cols);
         for (let j = 0; j < cols; j++) {
-          row[j] = (Math.random() - 0.5) * 0.1; // -0.05 ~ 0.05 사이 초기값
+          row[j] = (Math.random() - 0.5) * 0.1;
         }
         matrix.push(row);
       }
@@ -196,15 +204,14 @@
     // MLP 예측
     function predictMLP(inputVector) {
       const hiddenLayer = relu(matrixMultiply(mlpWeights.inputToHidden, inputVector));
-      const outputLayer = matrixMultiply(mlpWeights.hiddenToOutput, hiddenLayer);
-      return outputLayer;
+      return matrixMultiply(mlpWeights.hiddenToOutput, hiddenLayer);
     }
 
-    // MLP 훈련 (간단한 경사 하강법)
+    // MLP 훈련
     function trainMLP(data, epochs = 10, learningRate = 0.01) {
-      const inputSize = 300;  // 입력 벡터 크기
-      const hiddenSize = 128; // 은닉층 크기
-      const outputSize = 10;  // 출력 크기 (임의로 설정, 필요 시 조정 가능)
+      const inputSize = 300;
+      const hiddenSize = 128;
+      const outputSize = 10;
 
       if (!mlpWeights.inputToHidden) {
         mlpWeights.inputToHidden = initializeWeights(hiddenSize, inputSize);
@@ -214,15 +221,14 @@
       for (let epoch = 0; epoch < epochs; epoch++) {
         data.forEach(item => {
           const input = item.vector;
-          const target = new Float32Array(outputSize).map(() => Math.random()); // 임시 타겟
+          const target = new Float32Array(outputSize).map(() => Math.random());
           const hidden = relu(matrixMultiply(mlpWeights.inputToHidden, input));
           const output = matrixMultiply(mlpWeights.hiddenToOutput, hidden);
           const outputError = output.map((o, i) => target[i] - o);
 
           for (let i = 0; i < mlpWeights.hiddenToOutput.length; i++) {
             for (let j = 0; j < mlpWeights.hiddenToOutput[i].length; j++) {
-              const delta = outputError[i] * hidden[j] * learningRate;
-              mlpWeights.hiddenToOutput[i][j] += delta;
+              mlpWeights.hiddenToOutput[i][j] += outputError[i] * hidden[j] * learningRate;
             }
           }
 
@@ -237,41 +243,156 @@
 
           for (let i = 0; i < mlpWeights.inputToHidden.length; i++) {
             for (let j = 0; j < mlpWeights.inputToHidden[i].length; j++) {
-              const delta = hiddenError[i] * input[j] * learningRate;
-              mlpWeights.inputToHidden[i][j] += delta;
+              mlpWeights.inputToHidden[i][j] += hiddenError[i] * input[j] * learningRate;
             }
           }
         });
-        console.log(`Epoch ${epoch + 1}/${epochs} 완료`);
       }
     }
 
-    // 로컬 스토리지에서 모델 및 데이터 불러오기
+    // Transformer 관련 함수
+    function createPositionalEncoding(maxLen, dModel) {
+      const pe = [];
+      for (let i = 0; i < maxLen; i++) {
+        const row = new Float32Array(dModel);
+        for (let j = 0; j < dModel; j++) {
+          row[j] = j % 2 === 0
+            ? Math.sin(i / Math.pow(10000, j / dModel))
+            : Math.cos(i / Math.pow(10000, (j - 1) / dModel));
+        }
+        pe.push(row);
+      }
+      return pe;
+    }
+
+    function softmax(arr) {
+      const max = Math.max(...arr);
+      const exp = arr.map(x => Math.exp(x - max));
+      const sum = exp.reduce((a, b) => a + b, 0);
+      return exp.map(x => x / sum);
+    }
+
+    function multiHeadSelfAttention(x, weights, nHeads, dModel) {
+      const dK = dModel / nHeads;
+      const seqLen = x.length;
+
+      const Q = matrixMultiply(weights.WQ, x.flat());
+      const K = matrixMultiply(weights.WK, x.flat());
+      const V = matrixMultiply(weights.WV, x.flat());
+
+      const Qs = splitHeads(Q, seqLen, nHeads, dK);
+      const Ks = splitHeads(K, seqLen, nHeads, dK);
+      const Vs = splitHeads(V, seqLen, nHeads, dK);
+
+      const attention = [];
+      for (let h = 0; h < nHeads; h++) {
+        const scores = matrixMultiply(Qs[h], Ks[h].map(row => row.slice()).transpose());
+        const scaledScores = scores.map(row => row.map(val => val / Math.sqrt(dK)));
+        const attnWeights = scaledScores.map(row => softmax(row));
+        const output = matrixMultiply(attnWeights, Vs[h]);
+        attention.push(output);
+      }
+
+      const concat = attention.flat(2);
+      return matrixMultiply(weights.WO, concat.flat());
+    }
+
+    function splitHeads(tensor, seqLen, nHeads, dK) {
+      const heads = [];
+      for (let h = 0; h < nHeads; h++) {
+        const head = [];
+        for (let i = 0; i < seqLen; i++) {
+          const start = h * dK;
+          head.push(tensor.slice(i * transformerConfig.dModel + start, start + dK));
+        }
+        heads.push(head);
+      }
+      return heads;
+    }
+
+    function feedForwardNetwork(x, weights) {
+      const hidden = relu(matrixMultiply(weights.W1, x));
+      return matrixMultiply(weights.W2, hidden);
+    }
+
+    function layerNorm(x) {
+      const mean = x.reduce((a, b) => a + b, 0) / x.length;
+      const variance = x.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / x.length;
+      return x.map(val => (val - mean) / Math.sqrt(variance + 1e-5));
+    }
+
+    function decoderBlock(x, weights) {
+      let x1 = layerNorm(x);
+      const x2 = multiHeadSelfAttention(x1, weights.mhsa, transformerConfig.nHeads, transformerConfig.dModel);
+      x = x.map((val, i) => val + x2[i]); // Residual
+      let x3 = layerNorm(x);
+      const x4 = feedForwardNetwork(x3, weights.ffn);
+      return x.map((val, i) => val + x4[i]); // Residual
+    }
+
+    function initializeTransformerWeights() {
+      transformerWeights = {
+        embedding: initializeWeights(transformerConfig.vocabSize, transformerConfig.dModel),
+        decoder: Array(transformerConfig.nLayers).fill().map(() => ({
+          mhsa: {
+            WQ: initializeWeights(transformerConfig.dModel, transformerConfig.dModel),
+            WK: initializeWeights(transformerConfig.dModel, transformerConfig.dModel),
+            WV: initializeWeights(transformerConfig.dModel, transformerConfig.dModel),
+            WO: initializeWeights(transformerConfig.dModel, transformerConfig.dModel)
+          },
+          ffn: {
+            W1: initializeWeights(transformerConfig.dFF, transformerConfig.dModel),
+            W2: initializeWeights(transformerConfig.dModel, transformerConfig.dFF)
+          }
+        })),
+        output: initializeWeights(transformerConfig.vocabSize, transformerConfig.dModel)
+      };
+    }
+
+    function transformerDecode(inputIds) {
+      if (!transformerWeights) initializeTransformerWeights();
+      const pe = createPositionalEncoding(transformerConfig.maxLen, transformerConfig.dModel);
+      let x = inputIds.map(id => transformerWeights.embedding[id]);
+      x = x.map((emb, i) => emb.map((val, j) => val + pe[i][j]));
+
+      for (let i = 0; i < transformerConfig.nLayers; i++) {
+        x = decoderBlock(x, transformerWeights.decoder[i]);
+      }
+
+      const logits = matrixMultiply(transformerWeights.output, x[x.length - 1]);
+      const probs = softmax(logits);
+      const nextTokenId = probs.indexOf(Math.max(...probs));
+      return vocabulary[nextTokenId] || nluEngine.defaultResponse;
+    }
+
+    // 데이터 로드 및 저장
     function loadModelAndData() {
       const savedWeights = localStorage.getItem('mlpWeights');
       const savedData = localStorage.getItem('processedData');
       const savedVocab = localStorage.getItem('vocabulary');
+      const savedTransformer = localStorage.getItem('transformerWeights');
 
       if (savedWeights) {
         mlpWeights = JSON.parse(savedWeights);
         mlpWeights.inputToHidden = mlpWeights.inputToHidden.map(row => new Float32Array(row));
         mlpWeights.hiddenToOutput = mlpWeights.hiddenToOutput.map(row => new Float32Array(row));
       }
-
       if (savedData) {
-        processedData = JSON.parse(savedData);
-        processedData = processedData.map(item => ({
+        processedData = JSON.parse(savedData).map(item => ({
           tokens: item.tokens,
           vector: new Float32Array(item.vector)
         }));
       }
-
       if (savedVocab) {
         vocabulary = JSON.parse(savedVocab);
+        transformerConfig.vocabSize = vocabulary.length;
+      }
+      if (savedTransformer) {
+        transformerWeights = JSON.parse(savedTransformer);
+        // Float32Array로 변환 생략 (단순화)
       }
     }
 
-    // 로컬 스토리지에 모델 및 데이터 저장
     function saveModelAndData() {
       localStorage.setItem('mlpWeights', JSON.stringify({
         inputToHidden: mlpWeights.inputToHidden.map(row => Array.from(row)),
@@ -282,92 +403,61 @@
         vector: Array.from(item.vector)
       }))));
       localStorage.setItem('vocabulary', JSON.stringify(vocabulary));
+      localStorage.setItem('transformerWeights', JSON.stringify(transformerWeights));
     }
 
-    // GitHub에서 학습 데이터 가져오기 및 처리
     async function fetchAndProcessData() {
       try {
-        console.log('[INFO] 학습용.txt 파일을 불러오는 중...');
-        const response = await fetch(LEARNING_TEXT_URL, {
-          method: 'GET',
-          mode: 'cors',
-          headers: {
-            'Content-Type': 'text/plain'
-          }
-        });
-        if (!response.ok) {
-          throw new Error(`학습 데이터 가져오기 실패: ${response.statusText}`);
-        }
+        const response = await fetch(LEARNING_TEXT_URL, { mode: 'cors' });
+        if (!response.ok) throw new Error('데이터 가져오기 실패');
         const text = await response.text();
-        console.log('[SUCCESS] 학습용.txt 파일을 성공적으로 불러왔습니다.');
-
         const lines = text.split('\n').filter(line => line.trim());
         const refinedTexts = lines.map(line => refineText(line));
         const tokenizedTexts = refinedTexts.map(text => tokenizeText(text));
 
         vocabulary = [...new Set(tokenizedTexts.flat())];
+        transformerConfig.vocabSize = vocabulary.length;
         const vectorizedData = tokenizedTexts.map(tokens => ({
           tokens,
           vector: vectorizeText(tokens, vocabulary)
         }));
 
-        processedData = vectorizedData; // 초기 훈련 데이터 저장
+        processedData = vectorizedData;
         trainMLP(processedData);
-        saveModelAndData(); // 초기 데이터 저장
+        saveModelAndData();
       } catch (error) {
-        console.error('[ERROR] 학습용.txt 파일 불러오기 실패:', error);
-        appendBubble('챗봇 초기화에 실패했습니다.', 'bot');
+        console.error(error);
+        appendBubble('챗봇 초기화 실패', 'bot');
       }
     }
 
-    // 의도 식별 함수
+    // 의도 식별 및 응답 생성
     function identifyIntent(text) {
-      const refinedText = refineText(text);
-      const tokens = tokenizeText(refinedText);
-      
+      const tokens = tokenizeText(refineText(text));
       for (const [intent, data] of Object.entries(nluEngine.intents)) {
-        if (tokens.some(token => data.keywords.includes(token))) {
-          return intent;
-        }
+        if (tokens.some(token => data.keywords.includes(token))) return intent;
       }
       return null;
     }
 
-    // 응답 생성 함수
-    function generateResponse(intent) {
-      if (intent && nluEngine.intents[intent]) {
-        const responses = nluEngine.intents[intent].responses;
-        return responses[Math.floor(Math.random() * responses.length)];
-      }
-      return nluEngine.defaultResponse;
-    }
-
-    // 사용자 메시지 처리 및 MLP에 자동 저장
     function processMessage(text) {
-      const refinedText = refineText(text);
-      const tokens = tokenizeText(refinedText);
+      const tokens = tokenizeText(refineText(text));
       const inputVector = vectorizeText(tokens, vocabulary);
+      appendBubble(`사용자 입력 벡터: [${inputVector.slice(0, 5).join(', ')} ...]`, 'user');
 
-      // 300차원 벡터를 채팅창에 표시
-      appendBubble(`사용자 입력 벡터: [${inputVector.slice(0, 5).join(', ')} ...] (총 300차원)`, 'user');
-
-      // MLP에 새로운 데이터 추가 및 재훈련
       const newData = { tokens, vector: inputVector };
       processedData.push(newData);
-      trainMLP([newData], 1); // 1 에포크로 재훈련
-      saveModelAndData(); // 모델 및 데이터 저장
+      trainMLP([newData], 1);
+      saveModelAndData();
 
-      // 예측 수행
-      const prediction = predictMLP(inputVector);
-      console.log('MLP 예측 결과:', prediction);
-
-      // NLU 엔진을 사용하여 의도 식별 및 응답 생성
       const intent = identifyIntent(text);
-      const reply = `👾 에코봇: ${generateResponse(intent)}`;
+      const inputIds = tokens.map(t => vocabulary.indexOf(t)).filter(id => id >= 0);
+      const transformerResponse = transformerDecode(inputIds);
+      const reply = `👾 에코봇: ${intent ? transformerResponse : nluEngine.defaultResponse}`;
       appendBubble(reply, 'bot');
     }
 
-    // 이벤트 리스너 설정
+    // 이벤트 설정
     sendBtn.addEventListener('click', () => {
       const text = inputEl.value.trim();
       if (!text) return;
@@ -377,21 +467,13 @@
     });
 
     inputEl.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        const text = inputEl.value.trim();
-        if (!text) return;
-        appendBubble(text, 'user');
-        inputEl.value = '';
-        processMessage(text);
-      }
+      if (e.key === 'Enter') sendBtn.click();
     });
 
-    // 초기화 실행
+    // 초기화
     (async function init() {
-      loadModelAndData(); // 로컬 스토리지에서 모델 및 데이터 불러오기
-      if (!mlpWeights.inputToHidden) {
-        await fetchAndProcessData(); // 초기 데이터가 없으면 GitHub에서 가져오기
-      }
+      loadModelAndData();
+      if (!mlpWeights.inputToHidden) await fetchAndProcessData();
       appendBubble('안녕하세요! 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
     })();
   </script>

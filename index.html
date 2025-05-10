@@ -103,29 +103,25 @@
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');
 
-    // 백엔드 API 키 가져오기
     let MY_API_KEY = '';
+    let LEARNING_TEXT_URL = '';
 
-    async function fetchApiKey() {
+    // 백엔드에서 API 키와 LEARNING_TEXT_URL 가져오기
+    async function fetchBackendData() {
       try {
-        const response = await fetch('http://localhost:3000/api/key');
-        if (!response.ok) throw new Error('API 키를 가져오지 못했습니다.');
+        const response = await fetch('http://localhost:3000/api/data');
+        if (!response.ok) throw new Error('백엔드 데이터를 가져오지 못했습니다.');
         const data = await response.json();
         MY_API_KEY = data.apiKey;
-        console.log('[SUCCESS] API 키를 성공적으로 가져왔습니다.');
+        LEARNING_TEXT_URL = data.learningUrl;
+        console.log('[SUCCESS] 백엔드 데이터를 성공적으로 가져왔습니다.');
       } catch (error) {
-        console.error('[ERROR] API 키 가져오기 실패:', error.message);
+        console.error('[ERROR] 백엔드 데이터 가져오기 실패:', error.message);
       }
     }
 
     // Web Worker 설정 (inline으로 작성)
     const workerScript = `
-      const LEARNING_URLS = [
-        'https://raw.githubusercontent.com/rnjsjergus179/-/main/학습용.txt',
-        'https://raw.githubusercontent.com/rnjsjergus179/-/main/docs/sayns.txt',
-        'https://raw.githubusercontent.com/rnjsjergus179/-/main/docs/자동저장2.txt'
-      ];
-
       let vocabulary = [];
       let mlpSnnModel = null;
       let intentGroups = { greeting: [], question: [], request: [], science: [], unknown: [] };
@@ -364,19 +360,22 @@
       }
 
       // 데이터 로드 및 처리
-      async function loadData(apiKey) {
+      async function loadData(apiKey, learningUrl) {
         let allTokens = [];
-        for (const url of LEARNING_URLS) {
-          const response = await fetch(url, { 
+        try {
+          const response = await fetch(learningUrl, { 
             method: 'GET', 
             mode: 'cors',
             headers: { 'Authorization': \`Bearer \${apiKey}\` } 
           });
-          if (!response.ok) continue;
+          if (!response.ok) throw new Error('데이터 로드 실패');
           const text = await response.text();
           const lines = text.split('\\n').filter(line => line.trim());
           const tokenizedTexts = lines.map(line => tokenizeText(refineText(line)));
           allTokens = allTokens.concat(tokenizedTexts.flat());
+          console.log('[SUCCESS] 데이터 로드 완료:', learningUrl);
+        } catch (error) {
+          console.error('[ERROR] 데이터 로드 실패:', error.message);
         }
         vocabulary = [...new Set(allTokens)];
         mlpSnnModel = new MLPSNN(300, 128, 64, 5);
@@ -403,9 +402,9 @@
 
       // Worker 메시지 처리
       self.onmessage = function(e) {
-        const { type, text, apiKey } = e.data;
+        const { type, text, apiKey, learningUrl } = e.data;
         if (type === 'init') {
-          loadData(apiKey);
+          loadData(apiKey, learningUrl);
         } else if (type === 'process') {
           conversationHistory.push(text);
           localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
@@ -447,7 +446,7 @@
     // 메시지 처리
     function processMessage(text) {
       appendBubble(text, 'user');
-      worker.postMessage({ type: 'process', text, apiKey: MY_API_KEY });
+      worker.postMessage({ type: 'process', text, apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL });
     }
 
     // 이벤트 설정
@@ -468,8 +467,8 @@
 
     // 초기화
     (async function init() {
-      await fetchApiKey(); // API 키 가져오기
-      worker.postMessage({ type: 'init', apiKey: MY_API_KEY }); // Worker에 API 키 전달
+      await fetchBackendData(); // API 키와 LEARNING_TEXT_URL 가져오기
+      worker.postMessage({ type: 'init', apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL }); // Worker에 전달
       appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
     })();
   </script>

@@ -102,63 +102,29 @@
     const messagesEl = document.getElementById('messages');
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');
-    const LEARNING_TEXT_URL = 'https://raw.githubusercontent.com/rnjsjergus179/-/main/학습용.txt';
+
+    // 백엔드 API 키 가져오기
+    let MY_API_KEY = '';
+
+    async function fetchApiKey() {
+      try {
+        const response = await fetch('http://localhost:3000/api/key');
+        if (!response.ok) throw new Error('API 키를 가져오지 못했습니다.');
+        const data = await response.json();
+        MY_API_KEY = data.apiKey;
+        console.log('[SUCCESS] API 키를 성공적으로 가져왔습니다.');
+      } catch (error) {
+        console.error('[ERROR] API 키 가져오기 실패:', error.message);
+      }
+    }
 
     // Web Worker 설정 (inline으로 작성)
     const workerScript = `
-      // 가상 Node.js 환경을 위한 최소 모듈 정의
-      const express = function() {
-        const app = {
-          use: function(middleware) {
-            this.middleware = middleware;
-          },
-          get: function(path, handler) {
-            this[path] = handler;
-          },
-          listen: function(port, callback) {
-            callback();
-          }
-        };
-        return app;
-      };
-      const cors = function(options) {
-        return function(req, res) {
-          if (options.origin !== 'https://rnjsjergus179.github.io') {
-            res.status = 403;
-            res.send = () => 'Access Denied';
-          }
-          return { req, res };
-        };
-      };
-
-      const app = express();
-      const port = 3000;
-
-      // CORS 설정: rnjsjergus179.github.io 도메인만 허용
-      app.use(cors({
-        origin: 'https://rnjsjergus179.github.io',
-        methods: ['GET', 'POST'],
-        allowedHeaders: ['Content-Type']
-      }));
-
-      // LEARNING_TEXT_URL에서 데이터 가져오기
-      app.get('/data', async (req, res) => {
-        try {
-          const response = await fetch('${LEARNING_TEXT_URL}');
-          if (!response.ok) throw new Error('Failed to fetch data');
-          const text = await response.text();
-          res.send = () => text;
-          res.status = 200;
-        } catch (error) {
-          res.status = 500;
-          res.send = () => 'Error fetching data';
-        }
-        self.postMessage({ type: 'data', data: res.send() });
-      });
-
-      app.listen(port, () => {
-        console.log(\`Server running on port \${port}\`);
-      });
+      const LEARNING_URLS = [
+        'https://raw.githubusercontent.com/rnjsjergus179/-/main/학습용.txt',
+        'https://raw.githubusercontent.com/rnjsjergus179/-/main/docs/sayns.txt',
+        'https://raw.githubusercontent.com/rnjsjergus179/-/main/docs/자동저장2.txt'
+      ];
 
       let vocabulary = [];
       let mlpSnnModel = null;
@@ -232,7 +198,7 @@
           const hidden1 = new Array(this.mlpHiddenSize).fill(0).map((_, i) => {
             let sum = 0;
             for (let j = 0; j < this.inputSize; j++) {
-              sum += this.mlpWeightsIH[i][j] * (input[j] || 0);
+              sum += this.mlpWeightsIH[i][j] * input[j];
             }
             return this.relu(sum);
           });
@@ -266,7 +232,7 @@
             for (let i = 0; i < this.snnHiddenSize; i++) {
               let sum = 0;
               for (let j = 0; j < this.snnHiddenSize; j++) {
-                sum += this.snnWeightsIH[i][j] * (spikesInput[j] || 0);
+                sum += this.snnWeightsIH[i][j] * spikesInput[j];
               }
               this.membrane[i] = this.membrane[i] * this.leak + sum;
               if (this.membrane[i] > this.threshold) {
@@ -302,7 +268,6 @@
           const outputSpikes = new Array(this.outputSize).fill(0);
           const targetVector = new Array(this.outputSize).fill(0);
           const intentIndex = ['greeting', 'question', 'request', 'science', 'unknown'].indexOf(target);
-          if (intentIndex === -1) return;
           targetVector[intentIndex] = 1;
 
           // SNN 출력 계산
@@ -312,7 +277,7 @@
             for (let i = 0; i < this.snnHiddenSize; i++) {
               let sum = 0;
               for (let j = 0; j < this.snnHiddenSize; j++) {
-                sum += this.snnWeightsIH[i][j] * (spikesInput[j] || 0);
+                sum += this.snnWeightsIH[i][j] * spikesInput[j];
               }
               this.membrane[i] = this.membrane[i] * this.leak + sum;
               if (this.membrane[i] > this.threshold) {
@@ -335,7 +300,7 @@
           // SNN 가중치 업데이트
           for (let i = 0; i < this.outputSize; i++) {
             for (let j = 0; j < this.snnHiddenSize; j++) {
-              this.snnWeightsHO[i][j] += learningRate * outputError[i] * (spikesInput[j] || 0);
+              this.snnWeightsHO[i][j] += learningRate * outputError[i] * spikesInput[j];
             }
           }
 
@@ -350,7 +315,7 @@
 
           for (let i = 0; i < this.snnHiddenSize; i++) {
             for (let j = 0; j < this.mlpHiddenSize; j++) {
-              this.mlpWeightsHO[i][j] += learningRate * mlpError[i] * (hidden2[j] || 0);
+              this.mlpWeightsHO[i][j] += learningRate * mlpError[i] * hidden2[j];
             }
           }
 
@@ -358,11 +323,11 @@
         }
 
         saveWeights() {
-          localStorage.setItem(\`weights_\${this.mlpHiddenSize}x\${this.inputSize}\`, JSON.stringify(this.mlpWeightsIH));
-          localStorage.setItem(\`weights_\${this.mlpHiddenSize}x\${this.mlpHiddenSize}\`, JSON.stringify(this.mlpWeightsHH));
-          localStorage.setItem(\`weights_\${this.snnHiddenSize}x\${this.mlpHiddenSize}\`, JSON.stringify(this.mlpWeightsHO));
-          localStorage.setItem(\`weights_\${this.snnHiddenSize}x\${this.snnHiddenSize}\`, JSON.stringify(this.snnWeightsIH));
-          localStorage.setItem(\`weights_\${this.outputSize}x\${this.snnHiddenSize}\`, JSON.stringify(this.snnWeightsHO));
+          localStorage.setItem('weights_\${this.mlpHiddenSize}x\${this.inputSize}', JSON.stringify(this.mlpWeightsIH));
+          localStorage.setItem('weights_\${this.mlpHiddenSize}x\${this.mlpHiddenSize}', JSON.stringify(this.mlpWeightsHH));
+          localStorage.setItem('weights_\${this.snnHiddenSize}x\${this.mlpHiddenSize}', JSON.stringify(this.mlpWeightsHO));
+          localStorage.setItem('weights_\${this.snnHiddenSize}x\${this.snnHiddenSize}', JSON.stringify(this.snnWeightsIH));
+          localStorage.setItem('weights_\${this.outputSize}x\${this.snnHiddenSize}', JSON.stringify(this.snnWeightsHO));
         }
       }
 
@@ -399,17 +364,20 @@
       }
 
       // 데이터 로드 및 처리
-      async function loadData() {
+      async function loadData(apiKey) {
         let allTokens = [];
-        const response = await fetch('/data');
-        const text = response.ok ? await response.text() : '';
-        if (!text) {
-          console.error('Failed to load data from server');
-          return;
+        for (const url of LEARNING_URLS) {
+          const response = await fetch(url, { 
+            method: 'GET', 
+            mode: 'cors',
+            headers: { 'Authorization': \`Bearer \${apiKey}\` } 
+          });
+          if (!response.ok) continue;
+          const text = await response.text();
+          const lines = text.split('\\n').filter(line => line.trim());
+          const tokenizedTexts = lines.map(line => tokenizeText(refineText(line)));
+          allTokens = allTokens.concat(tokenizedTexts.flat());
         }
-        const lines = text.split('\\n').filter(line => line.trim());
-        const tokenizedTexts = lines.map(line => tokenizeText(refineText(line)));
-        allTokens = allTokens.concat(tokenizedTexts.flat());
         vocabulary = [...new Set(allTokens)];
         mlpSnnModel = new MLPSNN(300, 128, 64, 5);
         conversationHistory = JSON.parse(localStorage.getItem('conversationHistory')) || [];
@@ -417,14 +385,13 @@
 
       // 의도 식별
       function identifyIntent(text) {
-        if (!mlpSnnModel) return 'unknown';
         const vector = wernickeArea(text);
         return mlpSnnModel.predict(vector);
       }
 
       // 자동 스파이킹 및 순환
       function autoSpike() {
-        if (conversationHistory.length > 0 && mlpSnnModel) {
+        if (conversationHistory.length > 0) {
           const lastText = conversationHistory[conversationHistory.length - 1];
           const intent = identifyIntent(lastText);
           intentGroups[intent].push(lastText);
@@ -436,19 +403,17 @@
 
       // Worker 메시지 처리
       self.onmessage = function(e) {
-        const { type, text } = e.data;
-        if (type === 'process' && text) {
+        const { type, text, apiKey } = e.data;
+        if (type === 'init') {
+          loadData(apiKey);
+        } else if (type === 'process') {
           conversationHistory.push(text);
           localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
           const intent = identifyIntent(text);
           const refinedIntent = prefrontalCortex(text, intent);
           const reply = brocaArea(refinedIntent);
-          if (mlpSnnModel) {
-            mlpSnnModel.train(wernickeArea(text), refinedIntent);
-          }
+          mlpSnnModel.train(wernickeArea(text), refinedIntent);
           self.postMessage({ type: 'processed', data: { intent: refinedIntent, reply: \`👾 챗봇: \${reply}\` } });
-        } else if (type === 'init') {
-          loadData();
         }
       };
 
@@ -473,7 +438,7 @@
     // Worker로부터 메시지 수신
     worker.onmessage = function(e) {
       const { type, data } = e.data;
-      if (type === 'processed' && data) {
+      if (type === 'processed') {
         const { reply } = data;
         appendBubble(reply, 'bot');
       }
@@ -481,9 +446,8 @@
 
     // 메시지 처리
     function processMessage(text) {
-      if (!text) return;
       appendBubble(text, 'user');
-      worker.postMessage({ type: 'process', text });
+      worker.postMessage({ type: 'process', text, apiKey: MY_API_KEY });
     }
 
     // 이벤트 설정
@@ -504,7 +468,8 @@
 
     // 초기화
     (async function init() {
-      worker.postMessage({ type: 'init' });
+      await fetchApiKey(); // API 키 가져오기
+      worker.postMessage({ type: 'init', apiKey: MY_API_KEY }); // Worker에 API 키 전달
       appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
     })();
   </script>

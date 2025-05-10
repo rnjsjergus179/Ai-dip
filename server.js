@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000; // 환경 변수 PORT 사용, 기본값 3000
+const PORT = process.env.PORT || 3000; // .env에서 PORT 사용, 기본값 3000
 
 // JSON body 파싱을 위한 미들웨어
 app.use(express.json());
@@ -15,13 +15,14 @@ app.use(cors({
   credentials: true // 인증 정보 포함 허용
 }));
 
-// `/api/data` 엔드포인트 (GET 요청)
-app.get('/api/data', (req, res) => {
+// `/api/config` 엔드포인트 (GET 요청)
+app.get('/api/config', (req, res) => {
   const apiKey = process.env.MY_API_KEY;
   const learningUrl = process.env.LEARNING_TEXT_URL;
+  const port = process.env.PORT || 3000;
   if (apiKey && learningUrl) {
-    console.log('[SUCCESS] API 키와 LEARNING_TEXT_URL을 성공적으로 반환했습니다.');
-    res.status(200).json({ apiKey, learningUrl });
+    console.log('[SUCCESS] API 키, LEARNING_TEXT_URL, PORT를 성공적으로 반환했습니다.');
+    res.status(200).json({ apiKey, learningUrl, port });
   } else {
     console.error('[ERROR] API 키 또는 LEARNING_TEXT_URL을 찾을 수 없습니다.');
     res.status(500).json({ error: 'API 키 또는 LEARNING_TEXT_URL을 찾을 수 없습니다.' });

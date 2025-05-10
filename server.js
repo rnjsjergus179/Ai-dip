@@ -1,6 +1,7 @@
 require('dotenv').config(); // .env 파일에서 환경 변수 로드
 const express = require('express');
 const cors = require('cors');
+const fetch = require('node-fetch'); // node-fetch 패키지 필요 (설치 필요: npm install node-fetch)
 
 const app = express();
 const PORT = process.env.PORT || 3000; // .env에서 PORT 사용, 기본값 3000
@@ -12,11 +13,10 @@ app.use(express.json());
 const allowedOrigins = process.env.ALLOWED_ORIGIN ? process.env.ALLOWED_ORIGIN.split(',') : [];
 app.use(cors({
   origin: function (origin, callback) {
-    // 허용된 도메인 목록에 요청 출처가 포함되어 있는지 확인
     if (allowedOrigins.length === 0) {
       return callback(new Error('CORS 설정 오류: ALLOWED_ORIGIN이 정의되지 않았습니다.'));
     }
-    if (allowedOrigins.includes(origin) || !origin) { // !origin은 서버 간 요청 등 CORS가 적용되지 않는 경우
+    if (allowedOrigins.includes(origin) || !origin) {
       callback(null, true);
     } else {
       callback(new Error('이 도메인은 CORS 정책에 의해 차단되었습니다.'));
@@ -37,6 +37,25 @@ app.get('/api/config', (req, res) => {
   } else {
     console.error('[ERROR] API 키 또는 LEARNING_TEXT_URL을 찾을 수 없습니다.');
     res.status(500).json({ error: 'API 키 또는 LEARNING_TEXT_URL을 찾을 수 없습니다.' });
+  }
+});
+
+// `/api/learning-text` 엔드포인트 (GET 요청) - 학습용.txt 파일 프록시
+app.get('/api/learning-text', async (req, res) => {
+  const learningUrl = process.env.LEARNING_TEXT_URL || 'https://raw.githubusercontent.com/rnjsjergus179/Ai-dip/main/학습용.txt';
+  if (!learningUrl) {
+    console.error('[ERROR] LEARNING_TEXT_URL이 정의되지 않았습니다.');
+    return res.status(500).json({ error: 'LEARNING_TEXT_URL이 정의되지 않았습니다.' });
+  }
+  try {
+    const response = await fetch(learningUrl);
+    if (!response.ok) throw new Error('학습용.txt 파일을 가져오지 못했습니다.');
+    const text = await response.text();
+    console.log('[SUCCESS] 학습용.txt 파일을 성공적으로 가져왔습니다.');
+    res.status(200).send(text);
+  } catch (error) {
+    console.error('[ERROR] 학습용.txt 파일 가져오기 실패:', error.message);
+    res.status(500).json({ error: '학습용.txt 파일을 가져오지 못했습니다.' });
   }
 });
 

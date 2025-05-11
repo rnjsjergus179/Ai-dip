@@ -29,13 +29,13 @@ async function fetchBackendData() {
 
 // 웹 워커 스크립트 정의
 const workerScript = `
-  let vocabulary = JSON.parse(localStorage.getItem('vocabulary') || '[]');
-  let vocabulary2 = JSON.parse(localStorage.getItem('vocabulary2') || '[]');
+  let vocabulary = [];
+  let vocabulary2 = [];
   let mlpSnnModel = null;
   let intentGroups = { greeting: [], question: [], request: [], science: [], unknown: [] };
-  let conversationHistory = JSON.parse(localStorage.getItem('conversationHistory') || '[]');
-  let accumulatedData2 = JSON.parse(localStorage.getItem('accumulatedData2') || '[]');
-  let maxSaveCount = parseInt(localStorage.getItem('maxSaveCount') || '0');
+  let conversationHistory = [];
+  let accumulatedData2 = [];
+  let maxSaveCount = 0;
 
   // 텍스트 정제 함수
   function refineText(text) {
@@ -263,7 +263,7 @@ const workerScript = `
 
     if (accumulatedData2.length < maxSaveCount) {
       accumulatedData2.push(text);
-      localStorage.setItem('accumulatedData2', JSON.stringify(accumulatedData2));
+      self.postMessage({ type: 'saveAccumulatedData2', data: accumulatedData2 });
       self.postMessage({
         type: 'log',
         message: \`accumulatedData2에 추가된 텍스트: "\${text}" (현재 \${accumulatedData2.length}/\${maxSaveCount})\`
@@ -295,7 +295,13 @@ const workerScript = `
   }
 
   // 학습 데이터 로드 및 초기화
-  async function loadData(apiKey, learningUrl, learningUrl2, savedWeights) {
+  async function loadData(apiKey, learningUrl, learningUrl2, savedWeights, initialData) {
+    vocabulary = initialData.vocabulary;
+    vocabulary2 = initialData.vocabulary2;
+    conversationHistory = initialData.conversationHistory;
+    accumulatedData2 = initialData.accumulatedData2;
+    maxSaveCount = initialData.maxSaveCount;
+
     if (!apiKey || !learningUrl || !learningUrl2) {
       self.postMessage({ type: 'initError', message: 'API 키 또는 학습 URL이 필요합니다.' });
       return;
@@ -317,12 +323,12 @@ const workerScript = `
       }
       const lines1 = text1.split('\\n').filter(line => line.trim());
       maxSaveCount = lines1.length; // 학습용.txt의 데이터 개수로 저장 제한 설정
-      localStorage.setItem('maxSaveCount', maxSaveCount);
+      self.postMessage({ type: 'saveMaxSaveCount', data: maxSaveCount });
       const tokenizedTexts1 = lines1.map(line => tokenizeText(refineText(line)));
       vocabulary = [...new Set(tokenizedTexts1.flat())] || [];
       conversationHistory = lines1; // 초기 대화 기록에 학습용.txt 데이터 전체 추가
-      localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
-      localStorage.setItem('vocabulary', JSON.stringify(vocabulary));
+      self.postMessage({ type: 'saveConversationHistory', data: conversationHistory });
+      self.postMessage({ type: 'saveVocabulary', data: vocabulary });
       self.postMessage({
         type: 'log',
         message: \`vocabulary에 저장된 단어 수: \${vocabulary.length}개, 예시: \${vocabulary.slice(0, 20).join(', ')}\`
@@ -346,8 +352,8 @@ const workerScript = `
       const tokenizedTexts2 = lines2.map(line => tokenizeText(refineText(line)));
       vocabulary2 = [...new Set(tokenizedTexts2.flat())] || [];
       accumulatedData2 = lines2 || [];
-      localStorage.setItem('accumulatedData2', JSON.stringify(accumulatedData2));
-      localStorage.setItem('vocabulary2', JSON.stringify(vocabulary2));
+      self.postMessage({ type: 'saveAccumulatedData2', data: accumulatedData2 });
+      self.postMessage({ type: 'saveVocabulary2', data: vocabulary2 });
       self.postMessage({
         type: 'log',
         message: \`vocabulary2에 저장된 단어 수: \${vocabulary2.length}개, 예시: \${vocabulary2.slice(0, 20).join(', ')}\`
@@ -387,9 +393,9 @@ const workerScript = `
 
   // 워커 메시지 처리
   self.onmessage = function(e) {
-    const { type, text, apiKey, learningUrl, learningUrl2, savedWeights } = e.data;
+    const { type, text, apiKey, learningUrl, learningUrl2, savedWeights, initialData } = e.data;
     if (type === 'init') {
-      loadData(apiKey, learningUrl, learningUrl2, savedWeights);
+      loadData(apiKey, learningUrl, learningUrl2, savedWeights, initialData);
     } else if (type === 'process') {
       if (!mlpSnnModel) {
         self.postMessage({ type: 'processed', data: { intent: 'unknown', reply: '👾 챗봇: 초기화 중입니다. 잠시 기다려주세요.' } });
@@ -399,7 +405,7 @@ const workerScript = `
       const refinedIntent = prefrontalCortex(text, intent);
       const reply = brocaArea(refinedIntent);
       conversationHistory.push(text);
-      localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
+      self.postMessage({ type: 'saveConversationHistory', data: conversationHistory });
       mlpSnnModel.train(wernickeArea(text), refinedIntent);
       self.postMessage({ type: 'processed', data: { intent: refinedIntent, reply: "👾 챗봇: " + reply } });
     }
@@ -435,6 +441,16 @@ worker.onmessage = function(e) {
     appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
   } else if (type === 'log' && message) {
     console.log(message); // 실시간 로그 출력
+  } else if (type === 'saveVocabulary') {
+    localStorage.setItem('vocabulary', JSON.stringify(data));
+  } else if (type === 'saveVocabulary2') {
+    localStorage.setItem('vocabulary2', JSON.stringify(data));
+  } else if (type === 'saveConversationHistory') {
+    localStorage.setItem('conversationHistory', JSON.stringify(data));
+  } else if (type === 'saveAccumulatedData2') {
+    localStorage.setItem('accumulatedData2', JSON.stringify(data));
+  } else if (type === 'saveMaxSaveCount') {
+    localStorage.setItem('maxSaveCount', data);
   }
 };
 
@@ -470,7 +486,21 @@ inputEl.addEventListener('keypress', (e) => {
   const success = await fetchBackendData();
   if (success && MY_API_KEY && LEARNING_TEXT_URL && LEARNING_TEXT_URL_2) {
     const savedWeights = JSON.parse(localStorage.getItem('modelWeights') || 'null');
-    worker.postMessage({ type: 'init', apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL, learningUrl2: LEARNING_TEXT_URL_2, savedWeights });
+    const initialData = {
+      vocabulary: JSON.parse(localStorage.getItem('vocabulary') || '[]'),
+      vocabulary2: JSON.parse(localStorage.getItem('vocabulary2') || '[]'),
+      conversationHistory: JSON.parse(localStorage.getItem('conversationHistory') || '[]'),
+      accumulatedData2: JSON.parse(localStorage.getItem('accumulatedData2') || '[]'),
+      maxSaveCount: parseInt(localStorage.getItem('maxSaveCount') || '0')
+    };
+    worker.postMessage({
+      type: 'init',
+      apiKey: MY_API_KEY,
+      learningUrl: LEARNING_TEXT_URL,
+      learningUrl2: LEARNING_TEXT_URL_2,
+      savedWeights,
+      initialData
+    });
   } else {
     appendBubble('👾 챗봇: 초기화 실패 - 백엔드 설정을 확인해주세요.', 'bot');
   }

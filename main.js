@@ -9,6 +9,7 @@ let MY_API_KEY = '';
 let LEARNING_TEXT_URL = ''; // 학습용 첫 번째 텍스트 파일 URL
 let LEARNING_TEXT_URL_2 = ''; // 두 번째 텍스트 파일 URL (파일저장2.txt)
 let isWorkerInitialized = false;
+let maxSaveCount = 0; // 학습용.txt의 데이터 개수로 저장 제한
 
 // 백엔드 데이터 가져오기 함수
 async function fetchBackendData() {
@@ -28,12 +29,13 @@ async function fetchBackendData() {
 
 // 웹 워커 스크립트 정의
 const workerScript = `
-  let vocabulary = [];
-  let vocabulary2 = []; // 두 번째 학습 데이터용 별도 어휘
+  let vocabulary = JSON.parse(localStorage.getItem('vocabulary') || '[]');
+  let vocabulary2 = JSON.parse(localStorage.getItem('vocabulary2') || '[]');
   let mlpSnnModel = null;
   let intentGroups = { greeting: [], question: [], request: [], science: [], unknown: [] };
-  let conversationHistory = [];
-  let accumulatedData2 = []; // 두 번째 학습 데이터 누적 저장용
+  let conversationHistory = JSON.parse(localStorage.getItem('conversationHistory') || '[]');
+  let accumulatedData2 = JSON.parse(localStorage.getItem('accumulatedData2') || '[]');
+  let maxSaveCount = parseInt(localStorage.getItem('maxSaveCount') || '0');
 
   // 텍스트 정제 함수
   function refineText(text) {
@@ -45,7 +47,7 @@ const workerScript = `
     return text.split(/\\s+/).filter(word => word.length > 0);
   }
 
-  // 텍스트 벡터화 함수
+  // 텍스트 백터화 함수
   function vectorizeText(tokens, vocab) {
     const vector = new Array(300).fill(0);
     tokens.forEach(token => {
@@ -228,7 +230,12 @@ const workerScript = `
   // 텍스트를 벡터로 변환 (Wernicke 영역)
   function wernickeArea(text, useSecondVocab = false) {
     const tokens = tokenizeText(refineText(text));
-    return vectorizeText(tokens, useSecondVocab ? vocabulary2 : vocabulary);
+    const vector = vectorizeText(tokens, useSecondVocab ? vocabulary2 : vocabulary);
+    self.postMessage({
+      type: 'log',
+      message: \`텍스트 백터화 완료: "\${text}" -> 벡터 길이: \${vector.length}\`
+    });
+    return vector;
   }
 
   // 의도에 따른 응답 생성 (Broca 영역)
@@ -254,14 +261,12 @@ const workerScript = `
     const angularResult = angularGyrus(text);
     if (angularResult === 'invalid') return 'unknown';
 
-    const isLearningText = conversationHistory.length < 5 || Math.random() > 0.7;
-    if (isLearningText) {
-      conversationHistory.push(text);
-    } else {
+    if (accumulatedData2.length < maxSaveCount) {
       accumulatedData2.push(text);
+      localStorage.setItem('accumulatedData2', JSON.stringify(accumulatedData2));
       self.postMessage({
         type: 'log',
-        message: \`accumulatedData2에 추가된 텍스트: "\${text}" (총 \${accumulatedData2.length}개)\`
+        message: \`accumulatedData2에 추가된 텍스트: "\${text}" (현재 \${accumulatedData2.length}/\${maxSaveCount})\`
       });
 
       fetch(\`${BACKEND_URL}/api/save-learning-text\`, {
@@ -270,12 +275,17 @@ const workerScript = `
         body: JSON.stringify({ text })
       }).then(response => {
         if (!response.ok) {
-          self.postMessage({ type: 'log', message: \`백엔드 데이터 저장 실패: \${response.status}\` });
+          self.postMessage({ type: 'log', message: \`파일저장2.txt 저장 실패: \${response.status}\` });
         } else {
-          self.postMessage({ type: 'log', message: \`백엔드에 데이터 저장 성공: \${text}\` });
+          self.postMessage({ type: 'log', message: \`파일저장2.txt에 저장 성공: \${text}\` });
         }
       }).catch(error => {
-        self.postMessage({ type: 'log', message: \`백엔드 데이터 저장 오류: \${error.message}\` });
+        self.postMessage({ type: 'log', message: \`파일저장2.txt 저장 오류: \${error.message}\` });
+      });
+    } else {
+      self.postMessage({
+        type: 'log',
+        message: '저장 제한에 도달하여 더 이상 저장하지 않습니다.'
       });
     }
 
@@ -298,29 +308,25 @@ const workerScript = `
         const response1 = await fetch(proxyUrl1);
         if (!response1.ok) throw new Error('첫 번째 데이터 로드 실패');
         text1 = await response1.text();
-        // ————————————————————————————————
-        // 학습용.txt 로딩 확인용 로그
-        console.log('[Worker] 학습용.txt 전체 길이:', text1.length);
         self.postMessage({
           type: 'log',
           message: \`학습용.txt 불러오기 성공 (문자 수: \${text1.length})\`
         });
-        // ————————————————————————————————
       } catch (error) {
-        console.error('[ERROR] 첫 번째 학습 데이터 로드 실패:', error.message);
-        self.postMessage({ type: 'warning', message: '첫 번째 학습 데이터를 불러오지 못했습니다. 빈 데이터로 진행합니다.' });
+        self.postMessage({ type: 'warning', message: '학습용.txt를 불러오지 못했습니다. 빈 데이터로 진행합니다.' });
       }
       const lines1 = text1.split('\\n').filter(line => line.trim());
+      maxSaveCount = lines1.length; // 학습용.txt의 데이터 개수로 저장 제한 설정
+      localStorage.setItem('maxSaveCount', maxSaveCount);
       const tokenizedTexts1 = lines1.map(line => tokenizeText(refineText(line)));
       vocabulary = [...new Set(tokenizedTexts1.flat())] || [];
-      // ————————————————————————————————
-      // vocabulary 확인용 로그
-      console.log('[Worker] vocabulary (학습용.txt) 단어 수:', vocabulary.length);
+      conversationHistory = lines1; // 초기 대화 기록에 학습용.txt 데이터 전체 추가
+      localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
+      localStorage.setItem('vocabulary', JSON.stringify(vocabulary));
       self.postMessage({
         type: 'log',
         message: \`vocabulary에 저장된 단어 수: \${vocabulary.length}개, 예시: \${vocabulary.slice(0, 20).join(', ')}\`
       });
-      // ————————————————————————————————
 
       // 두 번째 학습 데이터 로드 (파일저장2.txt)
       const proxyUrl2 = \`${BACKEND_URL}/api/learning-text?url=\${encodeURIComponent(learningUrl2)}\`;
@@ -329,18 +335,19 @@ const workerScript = `
         const response2 = await fetch(proxyUrl2);
         if (!response2.ok) throw new Error('두 번째 데이터 로드 실패');
         text2 = await response2.text();
+        self.postMessage({
+          type: 'log',
+          message: \`파일저장2.txt 불러오기 성공 (문자 수: \${text2.length})\`
+        });
       } catch (error) {
-        console.error('[ERROR] 두 번째 학습 데이터 로드 실패:', error.message);
-        self.postMessage({ type: 'warning', message: '두 번째 학습 데이터를 불러오지 못했습니다. 빈 데이터로 진행합니다.' });
+        self.postMessage({ type: 'warning', message: '파일저장2.txt를 불러오지 못했습니다. 빈 데이터로 진행합니다.' });
       }
       const lines2 = text2.split('\\n').filter(line => line.trim());
       const tokenizedTexts2 = lines2.map(line => tokenizeText(refineText(line)));
       vocabulary2 = [...new Set(tokenizedTexts2.flat())] || [];
       accumulatedData2 = lines2 || [];
-
-      // ————————————————————————————————
-      // 저장된 어휘 목록과 누적 데이터 확인용 로그
-      console.log('[Worker] vocabulary2:', vocabulary2);
+      localStorage.setItem('accumulatedData2', JSON.stringify(accumulatedData2));
+      localStorage.setItem('vocabulary2', JSON.stringify(vocabulary2));
       self.postMessage({
         type: 'log',
         message: \`vocabulary2에 저장된 단어 수: \${vocabulary2.length}개, 예시: \${vocabulary2.slice(0, 20).join(', ')}\`
@@ -349,11 +356,9 @@ const workerScript = `
         type: 'log',
         message: \`accumulatedData2 초기값 (라인 수): \${accumulatedData2.length}\`
       });
-      // ————————————————————————————————
 
       // 모델 초기화
       mlpSnnModel = new MLPSNN(300, 128, 64, 5, savedWeights);
-      conversationHistory = [];
       self.postMessage({ type: 'initComplete' });
     } catch (error) {
       self.postMessage({ type: 'initError', message: '초기화 중 오류 발생: ' + error.message });
@@ -367,26 +372,18 @@ const workerScript = `
     return mlpSnnModel.predict(vector);
   }
 
-  // 자동 학습
-  function autoSpike() {
-    if (!mlpSnnModel) return;
+  // 학습용.txt를 주기적으로 백터화하고 파일저장2.txt에 저장
+  async function autoVectorizeAndSave() {
+    if (!mlpSnnModel || !conversationHistory.length) return;
 
-    if (conversationHistory.length > 0) {
-      const lastText = conversationHistory[conversationHistory.length - 1];
-      const intent = identifyIntent(lastText);
-      intentGroups[intent].push(lastText);
-      mlpSnnModel.train(wernickeArea(lastText), intent);
-    }
-
-    if (accumulatedData2.length > 0) {
-      accumulatedData2.forEach(text => {
-        const intent = identifyIntent(text, true);
-        mlpSnnModel.train(wernickeArea(text, true), intent);
-      });
-    }
+    conversationHistory.forEach(text => {
+      const intent = identifyIntent(text);
+      const vector = wernickeArea(text);
+      prefrontalCortex(text, intent); // 파일저장2.txt에 저장
+    });
   }
 
-  setInterval(autoSpike, 5000);
+  setInterval(autoVectorizeAndSave, 5000); // 5초마다 실행
 
   // 워커 메시지 처리
   self.onmessage = function(e) {
@@ -401,6 +398,8 @@ const workerScript = `
       const intent = identifyIntent(text);
       const refinedIntent = prefrontalCortex(text, intent);
       const reply = brocaArea(refinedIntent);
+      conversationHistory.push(text);
+      localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
       mlpSnnModel.train(wernickeArea(text), refinedIntent);
       self.postMessage({ type: 'processed', data: { intent: refinedIntent, reply: "👾 챗봇: " + reply } });
     }
@@ -435,7 +434,7 @@ worker.onmessage = function(e) {
     isWorkerInitialized = true;
     appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
   } else if (type === 'log' && message) {
-    console.log(message); // 터미널에 로그 출력
+    console.log(message); // 실시간 로그 출력
   }
 };
 

@@ -259,13 +259,11 @@ const workerScript = `
       conversationHistory.push(text);
     } else {
       accumulatedData2.push(text);
-      // 단어 누적될 때마다 로그 출력
       self.postMessage({
         type: 'log',
         message: \`accumulatedData2에 추가된 텍스트: "\${text}" (총 \${accumulatedData2.length}개)\`
       });
 
-      // 백엔드에 데이터 전송
       fetch(\`${BACKEND_URL}/api/save-learning-text\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -300,6 +298,14 @@ const workerScript = `
         const response1 = await fetch(proxyUrl1);
         if (!response1.ok) throw new Error('첫 번째 데이터 로드 실패');
         text1 = await response1.text();
+        // ————————————————————————————————
+        // 학습용.txt 로딩 확인용 로그
+        console.log('[Worker] 학습용.txt 전체 길이:', text1.length);
+        self.postMessage({
+          type: 'log',
+          message: \`학습용.txt 불러오기 성공 (문자 수: \${text1.length})\`
+        });
+        // ————————————————————————————————
       } catch (error) {
         console.error('[ERROR] 첫 번째 학습 데이터 로드 실패:', error.message);
         self.postMessage({ type: 'warning', message: '첫 번째 학습 데이터를 불러오지 못했습니다. 빈 데이터로 진행합니다.' });
@@ -307,6 +313,14 @@ const workerScript = `
       const lines1 = text1.split('\\n').filter(line => line.trim());
       const tokenizedTexts1 = lines1.map(line => tokenizeText(refineText(line)));
       vocabulary = [...new Set(tokenizedTexts1.flat())] || [];
+      // ————————————————————————————————
+      // vocabulary 확인용 로그
+      console.log('[Worker] vocabulary (학습용.txt) 단어 수:', vocabulary.length);
+      self.postMessage({
+        type: 'log',
+        message: \`vocabulary에 저장된 단어 수: \${vocabulary.length}개, 예시: \${vocabulary.slice(0, 20).join(', ')}\`
+      });
+      // ————————————————————————————————
 
       // 두 번째 학습 데이터 로드 (파일저장2.txt)
       const proxyUrl2 = \`${BACKEND_URL}/api/learning-text?url=\${encodeURIComponent(learningUrl2)}\`;

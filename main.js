@@ -259,10 +259,14 @@ const workerScript = `
       conversationHistory.push(text);
     } else {
       accumulatedData2.push(text);
-      // 메인 스레드에 데이터 추가 로그 전송
-      self.postMessage({ type: 'log', message: \`accumulatedData2에 데이터 추가: \${text}\` });
+      // 단어 누적될 때마다 로그 출력
+      self.postMessage({
+        type: 'log',
+        message: \`accumulatedData2에 추가된 텍스트: "\${text}" (총 \${accumulatedData2.length}개)\`
+      });
+
       // 백엔드에 데이터 전송
-      fetch(\`${BACKEND_URL}/api/save-data\`, {
+      fetch(\`${BACKEND_URL}/api/save-learning-text\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
@@ -319,6 +323,19 @@ const workerScript = `
       const tokenizedTexts2 = lines2.map(line => tokenizeText(refineText(line)));
       vocabulary2 = [...new Set(tokenizedTexts2.flat())] || [];
       accumulatedData2 = lines2 || [];
+
+      // ————————————————————————————————
+      // 저장된 어휘 목록과 누적 데이터 확인용 로그
+      console.log('[Worker] vocabulary2:', vocabulary2);
+      self.postMessage({
+        type: 'log',
+        message: \`vocabulary2에 저장된 단어 수: \${vocabulary2.length}개, 예시: \${vocabulary2.slice(0, 20).join(', ')}\`
+      });
+      self.postMessage({
+        type: 'log',
+        message: \`accumulatedData2 초기값 (라인 수): \${accumulatedData2.length}\`
+      });
+      // ————————————————————————————————
 
       // 모델 초기화
       mlpSnnModel = new MLPSNN(300, 128, 64, 5, savedWeights);
@@ -445,4 +462,3 @@ inputEl.addEventListener('keypress', (e) => {
     appendBubble('👾 챗봇: 초기화 실패 - 백엔드 설정을 확인해주세요.', 'bot');
   }
 })();
-

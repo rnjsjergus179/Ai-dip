@@ -9,7 +9,7 @@ let MY_API_KEY = '';
 let LEARNING_TEXT_URL = ''; // 학습용 첫 번째 텍스트 파일 URL
 let LEARNING_TEXT_URL_2 = ''; // 두 번째 텍스트 파일 URL (파일저장2.txt)
 let isWorkerInitialized = false;
-let maxSaveCount = 0; // 학습용.txt의 데이터 개수로 저장 제한
+const MAX_SENTENCES = 10; // 최대 문장 수 제한
 
 // 백엔드 데이터 가져오기 함수
 async function fetchBackendData() {
@@ -29,13 +29,13 @@ async function fetchBackendData() {
 
 // 웹 워커 스크립트 정의
 const workerScript = `
-  let vocabulary = [];
-  let vocabulary2 = [];
+  let vocabulary = new Set(); // 첫 번째 단어 집합
+  let vocabulary2 = new Set(); // 두 번째 단어 집합 (중복 방지용)
   let mlpSnnModel = null;
   let intentGroups = { greeting: [], question: [], request: [], science: [], unknown: [] };
   let conversationHistory = [];
-  let accumulatedData2 = [];
-  let maxSaveCount = 0;
+  let accumulatedData2 = []; // 파일저장2.txt에 저장되는 데이터
+  const MAX_SENTENCES = 10; // 최대 문장 수 제한
 
   // 텍스트 정제 함수
   function refineText(text) {
@@ -51,7 +51,7 @@ const workerScript = `
   function vectorizeText(tokens, vocab) {
     const vector = new Array(300).fill(0);
     tokens.forEach(token => {
-      const index = vocab.indexOf(token) % 300;
+      const index = Array.from(vocab).indexOf(token) % 300;
       if (index >= 0) vector[index] += 1;
     });
     return vector;
@@ -261,14 +261,27 @@ const workerScript = `
     const angularResult = angularGyrus(text);
     if (angularResult === 'invalid') return 'unknown';
 
-    if (accumulatedData2.length < maxSaveCount) {
+    const tokens = tokenizeText(refineText(text));
+    // 중복 단어 체크
+    let newWords = tokens.filter(word => !vocabulary2.has(word));
+    if (newWords.length > 0 && accumulatedData2.length < MAX_SENTENCES) {
       accumulatedData2.push(text);
+      if (accumulatedData2.length > MAX_SENTENCES) {
+        accumulatedData2.shift(); // 가장 오래된 문장 제거
+      }
+      newWords.forEach(word => vocabulary2.add(word)); // 새로운 단어만 추가
       self.postMessage({ type: 'saveAccumulatedData2', data: accumulatedData2 });
+      self.postMessage({ type: 'saveVocabulary2', data: Array.from(vocabulary2) });
       self.postMessage({
         type: 'log',
-        message: \`accumulatedData2에 추가된 텍스트: "\${text}" (현재 \${accumulatedData2.length}/\${maxSaveCount})\`
+        message: \`새로운 단어 추가: \${newWords.join(', ')}\`
+      });
+      self.postMessage({
+        type: 'log',
+        message: \`accumulatedData2에 추가된 텍스트: "\${text}" (현재 \${accumulatedData2.length}/\${MAX_SENTENCES})\`
       });
 
+      // 백엔드에 저장 요청
       fetch(\`${BACKEND_URL}/api/save-learning-text\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -285,7 +298,7 @@ const workerScript = `
     } else {
       self.postMessage({
         type: 'log',
-        message: '저장 제한에 도달하여 더 이상 저장하지 않습니다.'
+        message: '새로운 단어가 없거나 문장 제한에 도달하여 저장하지 않습니다.'
       });
     }
 
@@ -296,11 +309,10 @@ const workerScript = `
 
   // 학습 데이터 로드 및 초기화
   async function loadData(apiKey, learningUrl, learningUrl2, savedWeights, initialData) {
-    vocabulary = initialData.vocabulary;
-    vocabulary2 = initialData.vocabulary2;
+    vocabulary = new Set(initialData.vocabulary);
+    vocabulary2 = new Set(initialData.vocabulary2);
     conversationHistory = initialData.conversationHistory;
     accumulatedData2 = initialData.accumulatedData2;
-    maxSaveCount = initialData.maxSaveCount;
 
     if (!apiKey || !learningUrl || !learningUrl2) {
       self.postMessage({ type: 'initError', message: 'API 키 또는 학습 URL이 필요합니다.' });
@@ -322,16 +334,14 @@ const workerScript = `
         self.postMessage({ type: 'warning', message: '학습용.txt를 불러오지 못했습니다. 빈 데이터로 진행합니다.' });
       }
       const lines1 = text1.split('\\n').filter(line => line.trim());
-      maxSaveCount = lines1.length; // 학습용.txt의 데이터 개수로 저장 제한 설정
-      self.postMessage({ type: 'saveMaxSaveCount', data: maxSaveCount });
       const tokenizedTexts1 = lines1.map(line => tokenizeText(refineText(line)));
-      vocabulary = [...new Set(tokenizedTexts1.flat())] || [];
+      vocabulary = new Set(tokenizedTexts1.flat());
       conversationHistory = lines1; // 초기 대화 기록에 학습용.txt 데이터 전체 추가
       self.postMessage({ type: 'saveConversationHistory', data: conversationHistory });
-      self.postMessage({ type: 'saveVocabulary', data: vocabulary });
+      self.postMessage({ type: 'saveVocabulary', data: Array.from(vocabulary) });
       self.postMessage({
         type: 'log',
-        message: \`vocabulary에 저장된 단어 수: \${vocabulary.length}개, 예시: \${vocabulary.slice(0, 20).join(', ')}\`
+        message: \`vocabulary에 저장된 단어 수: \${vocabulary.size}개, 예시: \${Array.from(vocabulary).slice(0, 20).join(', ')}\`
       });
 
       // 두 번째 학습 데이터 로드 (파일저장2.txt)
@@ -350,13 +360,13 @@ const workerScript = `
       }
       const lines2 = text2.split('\\n').filter(line => line.trim());
       const tokenizedTexts2 = lines2.map(line => tokenizeText(refineText(line)));
-      vocabulary2 = [...new Set(tokenizedTexts2.flat())] || [];
-      accumulatedData2 = lines2 || [];
+      vocabulary2 = new Set(tokenizedTexts2.flat());
+      accumulatedData2 = lines2.slice(0, MAX_SENTENCES); // 최대 문장 수 제한 적용
       self.postMessage({ type: 'saveAccumulatedData2', data: accumulatedData2 });
-      self.postMessage({ type: 'saveVocabulary2', data: vocabulary2 });
+      self.postMessage({ type: 'saveVocabulary2', data: Array.from(vocabulary2) });
       self.postMessage({
         type: 'log',
-        message: \`vocabulary2에 저장된 단어 수: \${vocabulary2.length}개, 예시: \${vocabulary2.slice(0, 20).join(', ')}\`
+        message: \`vocabulary2에 저장된 단어 수: \${vocabulary2.size}개, 예시: \${Array.from(vocabulary2).slice(0, 20).join(', ')}\`
       });
       self.postMessage({
         type: 'log',
@@ -378,14 +388,14 @@ const workerScript = `
     return mlpSnnModel.predict(vector);
   }
 
-  // 학습용.txt를 주기적으로 백터화하고 파일저장2.txt에 저장
+  // 파일저장2.txt를 주기적으로 읽고 의도 인식에 반영
   async function autoVectorizeAndSave() {
     if (!mlpSnnModel || !conversationHistory.length) return;
 
     conversationHistory.forEach(text => {
       const intent = identifyIntent(text);
       const vector = wernickeArea(text);
-      prefrontalCortex(text, intent); // 파일저장2.txt에 저장
+      prefrontalCortex(text, intent); // 파일저장2.txt에 저장 및 반영
     });
   }
 
@@ -449,8 +459,6 @@ worker.onmessage = function(e) {
     localStorage.setItem('conversationHistory', JSON.stringify(data));
   } else if (type === 'saveAccumulatedData2') {
     localStorage.setItem('accumulatedData2', JSON.stringify(data));
-  } else if (type === 'saveMaxSaveCount') {
-    localStorage.setItem('maxSaveCount', data);
   }
 };
 
@@ -490,8 +498,7 @@ inputEl.addEventListener('keypress', (e) => {
       vocabulary: JSON.parse(localStorage.getItem('vocabulary') || '[]'),
       vocabulary2: JSON.parse(localStorage.getItem('vocabulary2') || '[]'),
       conversationHistory: JSON.parse(localStorage.getItem('conversationHistory') || '[]'),
-      accumulatedData2: JSON.parse(localStorage.getItem('accumulatedData2') || '[]'),
-      maxSaveCount: parseInt(localStorage.getItem('maxSaveCount') || '0')
+      accumulatedData2: JSON.parse(localStorage.getItem('accumulatedData2') || '[]')
     };
     worker.postMessage({
       type: 'init',

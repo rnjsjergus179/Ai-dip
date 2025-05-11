@@ -22,7 +22,7 @@ app.use(cors({
 app.get('/api/config', (req, res) => {
   const apiKey = process.env.MY_API_KEY;
   const learningUrl = process.env.LEARNING_TEXT_URL;
-  const learningUrl2 = process.env.LEARNING_TEXT_URL_2 || 'https://example.com/파일저장2.txt'; // 두 번째 학습 URL 추가
+  const learningUrl2 = process.env.LEARNING_TEXT_URL_2; // 두 번째 학습 URL 추가
   const port = process.env.PORT || 3000;
   if (apiKey && learningUrl && learningUrl2) {
     console.log('[SUCCESS] API 키, LEARNING_TEXT_URL, LEARNING_TEXT_URL_2, PORT를 성공적으로 반환했습니다.');

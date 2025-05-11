@@ -1,21 +1,24 @@
-// main.js
-
+// DOM 요소 가져오기
 const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 
+// 환경 변수 설정
 const BACKEND_URL = 'https://dibreoning-caesbos.onrender.com';
 let MY_API_KEY = '';
-let LEARNING_TEXT_URL = '';
+let LEARNING_TEXT_URL = ''; // 학습용 첫 번째 텍스트 파일 URL
+let LEARNING_TEXT_URL_2 = ''; // 두 번째 텍스트 파일 URL (파일저장2.txt)
 let isWorkerInitialized = false;
 
+// 백엔드 데이터 가져오기 함수
 async function fetchBackendData() {
   try {
     const response = await fetch(`${BACKEND_URL}/api/config`);
     if (!response.ok) throw new Error(`백엔드 응답 실패: ${response.status} ${response.statusText}`);
     const data = await response.json();
     MY_API_KEY = data.apiKey;
-    LEARNING_TEXT_URL = data.learningUrl;
+    LEARNING_TEXT_URL = data.learningUrl; // 첫 번째 학습 데이터 URL
+    LEARNING_TEXT_URL_2 = data.learningUrl2 || `${BACKEND_URL}/파일저장2.txt`; // 두 번째 학습 데이터 URL
     return true;
   } catch (error) {
     appendBubble('👾 챗봇: 백엔드 연결에 실패했습니다. 서버를 확인해주세요.', 'bot');
@@ -23,22 +26,26 @@ async function fetchBackendData() {
   }
 }
 
+// 웹 워커 스크립트 정의
 const workerScript = `
   let vocabulary = [];
+  let vocabulary2 = []; // 두 번째 학습 데이터용 별도 어휘
   let mlpSnnModel = null;
   let intentGroups = { greeting: [], question: [], request: [], science: [], unknown: [] };
   let conversationHistory = [];
+  let accumulatedData2 = []; // 두 번째 학습 데이터 누적 저장용
 
+  // 텍스트 정제 함수
   function refineText(text) {
-    const result = text.replace(/[^가-힣a-zA-Z0-9\\s]/g, '').toLowerCase().trim();
-    return result;
+    return text.replace(/[^가-힣a-zA-Z0-9\\s]/g, '').toLowerCase().trim();
   }
 
+  // 텍스트 토큰화 함수
   function tokenizeText(text) {
-    const result = text.split(/\\s+/).filter(word => word.length > 0);
-    return result;
+    return text.split(/\\s+/).filter(word => word.length > 0);
   }
 
+  // 텍스트 벡터화 함수
   function vectorizeText(tokens, vocab) {
     const vector = new Array(300).fill(0);
     tokens.forEach(token => {
@@ -48,11 +55,12 @@ const workerScript = `
     return vector;
   }
 
+  // 벡터를 스파이크로 변환
   function vectorToSpikes(vector) {
-    const result = vector.map(val => val > 0 ? 1 : 0);
-    return result;
+    return vector.map(val => val > 0 ? 1 : 0);
   }
 
+  // MLPSNN 클래스 정의
   class MLPSNN {
     constructor(inputSize, mlpHiddenSize, snnHiddenSize, outputSize, weights = null) {
       this.inputSize = inputSize;
@@ -154,7 +162,6 @@ const workerScript = `
     }
 
     train(input, target, learningRate = 0.01) {
-      console.log('[학습] train 함수 시작');
       const { hidden1, hidden2, mlpOutput } = this.mlpForward(input);
       const outputSpikes = new Array(this.outputSize).fill(0);
       const targetVector = new Array(this.outputSize).fill(0);
@@ -215,20 +222,16 @@ const workerScript = `
           snnWeightsHO: this.snnWeightsHO
         }
       });
-      console.log('[학습] train 함수 완료');
     }
   }
 
-  function wernickeArea(text) {
-    try {
-      const tokens = tokenizeText(refineText(text));
-      const result = vectorizeText(tokens, vocabulary);
-      return result;
-    } catch (error) {
-      throw error;
-    }
+  // 텍스트를 벡터로 변환 (Wernicke 영역)
+  function wernickeArea(text, useSecondVocab = false) {
+    const tokens = tokenizeText(refineText(text));
+    return vectorizeText(tokens, useSecondVocab ? vocabulary2 : vocabulary);
   }
 
+  // 의도에 따른 응답 생성 (Broca 영역)
   function brocaArea(intent) {
     const responses = {
       greeting: ["안녕하세요!", "반갑습니다!", "안녕!"],
@@ -237,45 +240,50 @@ const workerScript = `
       science: ["과학 관련 질문이군요!", "흥미로운 주제입니다!"],
       unknown: ["죄송합니다, 이해하지 못했습니다."]
     };
-    const result = responses[intent] ? responses[intent][Math.floor(Math.random() * responses[intent].length)] : "죄송합니다, 이해하지 못했습니다.";
-    return result;
+    return responses[intent] ? responses[intent][Math.floor(Math.random() * responses[intent].length)] : "죄송합니다, 이해하지 못했습니다.";
   }
 
+  // 텍스트 유효성 검사 (Angular Gyrus)
   function angularGyrus(text) {
-    try {
-      const tokens = tokenizeText(refineText(text));
-      const result = tokens.length > 0 ? 'valid' : 'invalid';
-      return result;
-    } catch (error) {
-      throw error;
-    }
+    const tokens = tokenizeText(refineText(text));
+    return tokens.length > 0 ? 'valid' : 'invalid';
   }
 
+  // 최종 의도 결정 (Prefrontal Cortex)
   function prefrontalCortex(text, intent) {
-    try {
-      const angularResult = angularGyrus(text);
-      const result = angularResult === 'invalid' ? 'unknown' : 
-        (intent === 'unknown' && conversationHistory.length > 0 ? 
-          identifyIntent(conversationHistory[conversationHistory.length - 1]) : intent);
-      return result;
-    } catch (error) {
-      throw error;
-    }
+    const angularResult = angularGyrus(text);
+    return angularResult === 'invalid' ? 'unknown' : 
+      (intent === 'unknown' && conversationHistory.length > 0 ? 
+        identifyIntent(conversationHistory[conversationHistory.length - 1]) : intent);
   }
 
-  async function loadData(apiKey, learningUrl, savedWeights) {
-    if (!apiKey || !learningUrl) {
+  // 학습 데이터 로드 및 초기화
+  async function loadData(apiKey, learningUrl, learningUrl2, savedWeights) {
+    if (!apiKey || !learningUrl || !learningUrl2) {
       self.postMessage({ type: 'initError', message: 'API 키 또는 학습 URL이 필요합니다.' });
       return;
     }
     try {
-      const proxyUrl = \`${BACKEND_URL}/api/learning-text?url=\${encodeURIComponent(learningUrl)}\`;
-      const response = await fetch(proxyUrl);
-      if (!response.ok) throw new Error('데이터 로드 실패');
-      const text = await response.text();
-      const lines = text.split('\\n').filter(line => line.trim());
-      const tokenizedTexts = lines.map(line => tokenizeText(refineText(line)));
-      vocabulary = [...new Set(tokenizedTexts.flat())];
+      // 첫 번째 학습 데이터 로드
+      const proxyUrl1 = \`${BACKEND_URL}/api/learning-text?url=\${encodeURIComponent(learningUrl)}\`;
+      const response1 = await fetch(proxyUrl1);
+      if (!response1.ok) throw new Error('첫 번째 데이터 로드 실패');
+      const text1 = await response1.text();
+      const lines1 = text1.split('\\n').filter(line => line.trim());
+      const tokenizedTexts1 = lines1.map(line => tokenizeText(refineText(line)));
+      vocabulary = [...new Set(tokenizedTexts1.flat())];
+
+      // 두 번째 학습 데이터 로드
+      const proxyUrl2 = \`${BACKEND_URL}/api/learning-text?url=\${encodeURIComponent(learningUrl2)}\`;
+      const response2 = await fetch(proxyUrl2);
+      if (!response2.ok) throw new Error('두 번째 데이터 로드 실패');
+      const text2 = await response2.text();
+      const lines2 = text2.split('\\n').filter(line => line.trim());
+      const tokenizedTexts2 = lines2.map(line => tokenizeText(refineText(line)));
+      vocabulary2 = [...new Set(tokenizedTexts2.flat())];
+      accumulatedData2 = lines2; // 누적 저장
+
+      // 모델 초기화
       mlpSnnModel = new MLPSNN(300, 128, 64, 5, savedWeights);
       conversationHistory = [];
       self.postMessage({ type: 'initComplete' });
@@ -284,64 +292,62 @@ const workerScript = `
     }
   }
 
-  function identifyIntent(text) {
-    try {
-      if (!mlpSnnModel) {
-        return 'unknown';
-      }
-      const vector = wernickeArea(text);
-      const result = mlpSnnModel.predict(vector);
-      return result;
-    } catch (error) {
-      return 'unknown';
-    }
+  // 의도 식별
+  function identifyIntent(text, useSecondVocab = false) {
+    if (!mlpSnnModel) return 'unknown';
+    const vector = wernickeArea(text, useSecondVocab);
+    return mlpSnnModel.predict(vector);
   }
 
+  // 자동 학습 (첫 번째와 두 번째 데이터 반복 학습)
   function autoSpike() {
-    console.log('[학습] autoSpike 시작');
-    try {
-      if (conversationHistory.length > 0 && mlpSnnModel) {
-        const lastText = conversationHistory[conversationHistory.length - 1];
-        const intent = identifyIntent(lastText);
-        intentGroups[intent].push(lastText);
-        mlpSnnModel.train(wernickeArea(lastText), intent);
-        console.log('[학습] autoSpike 성공');
-      } else {
-        console.log('[학습] autoSpike: 실행 조건 미충족');
-      }
-    } catch (error) {
-      console.log('[학습] autoSpike 실패:', error.message);
+    if (!mlpSnnModel) return;
+
+    // 첫 번째 대화 기반 학습
+    if (conversationHistory.length > 0) {
+      const lastText = conversationHistory[conversationHistory.length - 1];
+      const intent = identifyIntent(lastText);
+      intentGroups[intent].push(lastText);
+      mlpSnnModel.train(wernickeArea(lastText), intent);
+    }
+
+    // 두 번째 학습 데이터 반복 학습
+    if (accumulatedData2.length > 0) {
+      accumulatedData2.forEach(text => {
+        const intent = identifyIntent(text, true);
+        mlpSnnModel.train(wernickeArea(text, true), intent);
+      });
     }
   }
 
   setInterval(autoSpike, 5000);
 
+  // 워커 메시지 처리
   self.onmessage = function(e) {
-    const { type, text, apiKey, learningUrl, savedWeights } = e.data;
+    const { type, text, apiKey, learningUrl, learningUrl2, savedWeights } = e.data;
     if (type === 'init') {
-      loadData(apiKey, learningUrl, savedWeights);
+      loadData(apiKey, learningUrl, learningUrl2, savedWeights);
     } else if (type === 'process') {
-      try {
-        if (!mlpSnnModel) {
-          self.postMessage({ type: 'processed', data: { intent: 'unknown', reply: '👾 챗봇: 초기화 중입니다. 잠시 기다려주세요.' } });
-          return;
-        }
-        conversationHistory.push(text);
-        const intent = identifyIntent(text);
-        const refinedIntent = prefrontalCortex(text, intent);
-        const reply = brocaArea(refinedIntent);
-        mlpSnnModel.train(wernickeArea(text), refinedIntent);
-        self.postMessage({ type: 'processed', data: { intent: refinedIntent, reply: "👾 챗봇: " + reply } });
-      } catch (error) {
-        self.postMessage({ type: 'processed', data: { intent: 'unknown', reply: '👾 챗봇: 처리 중 오류가 발생했습니다.' } });
+      if (!mlpSnnModel) {
+        self.postMessage({ type: 'processed', data: { intent: 'unknown', reply: '👾 챗봇: 초기화 중입니다. 잠시 기다려주세요.' } });
+        return;
       }
+      conversationHistory.push(text);
+      accumulatedData2.push(text); // 두 번째 데이터에 누적 저장
+      const intent = identifyIntent(text);
+      const refinedIntent = prefrontalCortex(text, intent);
+      const reply = brocaArea(refinedIntent);
+      mlpSnnModel.train(wernickeArea(text), refinedIntent);
+      self.postMessage({ type: 'processed', data: { intent: refinedIntent, reply: "👾 챗봇: " + reply } });
     }
   };
 `;
 
+// 웹 워커 생성
 const blob = new Blob([workerScript], { type: 'application/javascript' });
 const worker = new Worker(URL.createObjectURL(blob));
 
+// 메시지 화면에 표시 함수
 function appendBubble(text, sender) {
   const bubble = document.createElement('div');
   bubble.classList.add('bubble', sender);
@@ -350,6 +356,7 @@ function appendBubble(text, sender) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+// 워커 메시지 수신 처리
 worker.onmessage = function(e) {
   const { type, data, message, weights } = e.data;
   if (type === 'processed' && data) {
@@ -364,6 +371,7 @@ worker.onmessage = function(e) {
   }
 };
 
+// 메시지 처리 함수
 function processMessage(text) {
   if (!text) return;
   appendBubble(text, 'user');
@@ -371,9 +379,10 @@ function processMessage(text) {
     appendBubble('👾 챗봇: 초기화 중입니다. 잠시 기다려주세요.', 'bot');
     return;
   }
-  worker.postMessage({ type: 'process', text, apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL });
+  worker.postMessage({ type: 'process', text, apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL, learningUrl2: LEARNING_TEXT_URL_2 });
 }
 
+// 이벤트 리스너 설정
 sendBtn.addEventListener('click', () => {
   const text = inputEl.value.trim();
   if (text) {
@@ -389,11 +398,12 @@ inputEl.addEventListener('keypress', (e) => {
   }
 });
 
+// 초기화 함수
 (async function init() {
   const success = await fetchBackendData();
-  if (success && MY_API_KEY && LEARNING_TEXT_URL) {
+  if (success && MY_API_KEY && LEARNING_TEXT_URL && LEARNING_TEXT_URL_2) {
     const savedWeights = JSON.parse(localStorage.getItem('modelWeights') || 'null');
-    worker.postMessage({ type: 'init', apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL, savedWeights });
+    worker.postMessage({ type: 'init', apiKey: MY_API_KEY, learningUrl: LEARNING_TEXT_URL, learningUrl2: LEARNING_TEXT_URL_2, savedWeights });
   } else {
     appendBubble('👾 챗봇: 초기화 실패 - 백엔드 설정을 확인해주세요.', 'bot');
   }

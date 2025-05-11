@@ -21,7 +21,7 @@ async function fetchBackendData() {
     LEARNING_TEXT_URL_2 = data.learningUrl2 || `${BACKEND_URL}/파일저장2.txt`; // 두 번째 학습 데이터 URL
     return true;
   } catch (error) {
-    appendBubble('👾 챗봇: 백엔드 연결에 실패했습니다. 서버를 확인해주세요.', 'bot');
+    appendBubble(`👾 챗봇: 백엔드 연결에 실패했습니다. 오류: ${error.message}`, 'bot');
     return false;
   }
 }
@@ -249,12 +249,37 @@ const workerScript = `
     return tokens.length > 0 ? 'valid' : 'invalid';
   }
 
-  // 최종 의도 결정 (Prefrontal Cortex)
+  // 전전두엽 피질을 사용한 의도 결정 및 데이터 판단 (Prefrontal Cortex)
   function prefrontalCortex(text, intent) {
     const angularResult = angularGyrus(text);
-    return angularResult === 'invalid' ? 'unknown' : 
-      (intent === 'unknown' && conversationHistory.length > 0 ? 
-        identifyIntent(conversationHistory[conversationHistory.length - 1]) : intent);
+    if (angularResult === 'invalid') return 'unknown';
+
+    const isLearningText = conversationHistory.length < 5 || Math.random() > 0.7;
+    if (isLearningText) {
+      conversationHistory.push(text);
+    } else {
+      accumulatedData2.push(text);
+      // 메인 스레드에 데이터 추가 로그 전송
+      self.postMessage({ type: 'log', message: \`accumulatedData2에 데이터 추가: \${text}\` });
+      // 백엔드에 데이터 전송
+      fetch(\`${BACKEND_URL}/api/save-data\`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      }).then(response => {
+        if (!response.ok) {
+          self.postMessage({ type: 'log', message: \`백엔드 데이터 저장 실패: \${response.status}\` });
+        } else {
+          self.postMessage({ type: 'log', message: \`백엔드에 데이터 저장 성공: \${text}\` });
+        }
+      }).catch(error => {
+        self.postMessage({ type: 'log', message: \`백엔드 데이터 저장 오류: \${error.message}\` });
+      });
+    }
+
+    return intent === 'unknown' && conversationHistory.length > 0 
+      ? identifyIntent(conversationHistory[conversationHistory.length - 1]) 
+      : intent;
   }
 
   // 학습 데이터 로드 및 초기화
@@ -264,31 +289,43 @@ const workerScript = `
       return;
     }
     try {
-      // 첫 번째 학습 데이터 로드
+      // 첫 번째 학습 데이터 로드 (학습용.txt)
       const proxyUrl1 = \`${BACKEND_URL}/api/learning-text?url=\${encodeURIComponent(learningUrl)}\`;
-      const response1 = await fetch(proxyUrl1);
-      if (!response1.ok) throw new Error('첫 번째 데이터 로드 실패');
-      const text1 = await response1.text();
+      let text1 = '';
+      try {
+        const response1 = await fetch(proxyUrl1);
+        if (!response1.ok) throw new Error('첫 번째 데이터 로드 실패');
+        text1 = await response1.text();
+      } catch (error) {
+        console.error('[ERROR] 첫 번째 학습 데이터 로드 실패:', error.message);
+        self.postMessage({ type: 'warning', message: '첫 번째 학습 데이터를 불러오지 못했습니다. 빈 데이터로 진행합니다.' });
+      }
       const lines1 = text1.split('\\n').filter(line => line.trim());
       const tokenizedTexts1 = lines1.map(line => tokenizeText(refineText(line)));
-      vocabulary = [...new Set(tokenizedTexts1.flat())];
+      vocabulary = [...new Set(tokenizedTexts1.flat())] || [];
 
-      // 두 번째 학습 데이터 로드
+      // 두 번째 학습 데이터 로드 (파일저장2.txt)
       const proxyUrl2 = \`${BACKEND_URL}/api/learning-text?url=\${encodeURIComponent(learningUrl2)}\`;
-      const response2 = await fetch(proxyUrl2);
-      if (!response2.ok) throw new Error('두 번째 데이터 로드 실패');
-      const text2 = await response2.text();
+      let text2 = '';
+      try {
+        const response2 = await fetch(proxyUrl2);
+        if (!response2.ok) throw new Error('두 번째 데이터 로드 실패');
+        text2 = await response2.text();
+      } catch (error) {
+        console.error('[ERROR] 두 번째 학습 데이터 로드 실패:', error.message);
+        self.postMessage({ type: 'warning', message: '두 번째 학습 데이터를 불러오지 못했습니다. 빈 데이터로 진행합니다.' });
+      }
       const lines2 = text2.split('\\n').filter(line => line.trim());
       const tokenizedTexts2 = lines2.map(line => tokenizeText(refineText(line)));
-      vocabulary2 = [...new Set(tokenizedTexts2.flat())];
-      accumulatedData2 = lines2; // 누적 저장
+      vocabulary2 = [...new Set(tokenizedTexts2.flat())] || [];
+      accumulatedData2 = lines2 || [];
 
       // 모델 초기화
       mlpSnnModel = new MLPSNN(300, 128, 64, 5, savedWeights);
       conversationHistory = [];
       self.postMessage({ type: 'initComplete' });
     } catch (error) {
-      self.postMessage({ type: 'initError', message: error.message });
+      self.postMessage({ type: 'initError', message: '초기화 중 오류 발생: ' + error.message });
     }
   }
 
@@ -299,11 +336,10 @@ const workerScript = `
     return mlpSnnModel.predict(vector);
   }
 
-  // 자동 학습 (첫 번째와 두 번째 데이터 반복 학습)
+  // 자동 학습
   function autoSpike() {
     if (!mlpSnnModel) return;
 
-    // 첫 번째 대화 기반 학습
     if (conversationHistory.length > 0) {
       const lastText = conversationHistory[conversationHistory.length - 1];
       const intent = identifyIntent(lastText);
@@ -311,7 +347,6 @@ const workerScript = `
       mlpSnnModel.train(wernickeArea(lastText), intent);
     }
 
-    // 두 번째 학습 데이터 반복 학습
     if (accumulatedData2.length > 0) {
       accumulatedData2.forEach(text => {
         const intent = identifyIntent(text, true);
@@ -332,8 +367,6 @@ const workerScript = `
         self.postMessage({ type: 'processed', data: { intent: 'unknown', reply: '👾 챗봇: 초기화 중입니다. 잠시 기다려주세요.' } });
         return;
       }
-      conversationHistory.push(text);
-      accumulatedData2.push(text); // 두 번째 데이터에 누적 저장
       const intent = identifyIntent(text);
       const refinedIntent = prefrontalCortex(text, intent);
       const reply = brocaArea(refinedIntent);
@@ -365,9 +398,13 @@ worker.onmessage = function(e) {
     localStorage.setItem('modelWeights', JSON.stringify(weights));
   } else if (type === 'initError' && message) {
     appendBubble(`👾 챗봇: 초기화 오류 - ${message}`, 'bot');
+  } else if (type === 'warning' && message) {
+    appendBubble(`👾 챗봇: ${message}`, 'bot');
   } else if (type === 'initComplete') {
     isWorkerInitialized = true;
     appendBubble('안녕하세요! AI 챗봇입니다. 무엇을 도와드릴까요?', 'bot');
+  } else if (type === 'log' && message) {
+    console.log(message); // 터미널에 로그 출력
   }
 };
 
@@ -408,3 +445,4 @@ inputEl.addEventListener('keypress', (e) => {
     appendBubble('👾 챗봇: 초기화 실패 - 백엔드 설정을 확인해주세요.', 'bot');
   }
 })();
+
